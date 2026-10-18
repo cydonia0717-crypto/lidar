@@ -7,6 +7,7 @@ import time
 
 from .model import Command, State, VehicleConfig, step
 from .world import World
+from .safety import CommandDelayLine, backup_segments
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,9 @@ class PlannerConfig:
     speed_change_weight: float = 0.15
     steer_weight: float = 0.2
     prediction_padding: float = 0.12
+    control_delay_s: float = 0.25
+    candidate_execute_s: float = 0.40
+    safety_dt: float = 0.05
 
 
 @dataclass
@@ -31,6 +35,10 @@ class Plan:
     candidate_count: int
     compute_ms: float
     emergency: bool = False
+    backup_checked: bool = False
+    rejected_by_backup: int = 0
+    unsafe_fallback: bool = False
+    fallback_strategy: str = "none"
 
 
 def collision_free(trajectory: list[State], world: World, vehicle: VehicleConfig,
@@ -74,29 +82,79 @@ def trajectory_cost(path: list[State], command: Command, start: State,
 
 
 def choose_action(initial: State, world: World, vehicle: VehicleConfig,
-                  cfg: PlannerConfig, *, mode: str = "predictive") -> Plan:
-    if mode not in ("reactive", "predictive"):
+                  cfg: PlannerConfig, *, mode: str = "predictive",
+                  delay_line: CommandDelayLine | None = None) -> Plan:
+    """Select safe candidate using a transparent finite action set.
+
+    reactive: freeze obstacle positions at observation time.
+    predictive: CV moving obstacles, but planner assumes instant actuation.
+    delay_aware: use actual already-queued commands during actuator delay.
+    braking: delay_aware plus execute-window/backup-braking tail filter.
+
+    All modes have the same *actual* actuator delay in closed-loop experiments.
+    Future versions will replace the ideal target state with radar tracking.
+    """
+    if mode not in ("reactive", "predictive", "delay_aware", "braking"):
         raise ValueError(f"unknown planner mode: {mode}")
     start_time = time.perf_counter()
+    if delay_line is None:
+        delay_line = CommandDelayLine(Command(initial.speed, initial.steer), cfg.control_delay_s)
+    if abs(delay_line.delay_s - cfg.control_delay_s) > 1e-8:
+        raise ValueError("planner/actuator control delays must agree")
+    prefix = None
+    if mode in ("delay_aware", "braking"):
+        # Use the *queued* historical commands, not just the most recent one.
+        prefix = delay_line.copy().advance_path(
+            initial, initial.time + cfg.control_delay_s, vehicle, cfg.safety_dt)
     best: tuple[float, Command, list[State]] | None = None
+    best_nominal: tuple[float, Command, list[State]] | None = None
     count = 0
     total = 0
+    backup_rejected = 0
     for target_speed in cfg.speed_samples:
         for target_steer in cfg.steer_samples:
             total += 1
             command = Command(target_speed, target_steer)
-            path = rollout(initial, command, vehicle, cfg.horizon, cfg.sample_dt)
-            padding = cfg.prediction_padding if mode == "predictive" else 0.0
-            if not collision_free(path, world, vehicle, predict=(mode == "predictive"), padding=padding):
+            if prefix is None:
+                path = rollout(initial, command, vehicle, cfg.horizon, cfg.sample_dt)
+            else:
+                # Candidate starts only after previously transmitted commands finish.
+                candidate = rollout(prefix[-1], command, vehicle, cfg.horizon, cfg.sample_dt)
+                path = prefix[:-1] + candidate
+            padding = 0.0 if mode == "reactive" else cfg.prediction_padding
+            if not collision_free(path, world, vehicle,
+                                  predict=(mode != "reactive"), padding=padding):
                 continue
-            count += 1
             score = trajectory_cost(path, command, initial, world, cfg)
+            if best_nominal is None or score < best_nominal[0]:
+                best_nominal = (score, command, path)
+            if mode == "braking":
+                segs = backup_segments(initial, command, delay_line, vehicle,
+                                       cfg.candidate_execute_s, cfg.safety_dt)
+                # Check each state in all three stages, including stopped endpoint.
+                if not collision_free(segs.complete, world, vehicle,
+                                      predict=True, padding=padding):
+                    backup_rejected += 1
+                    continue
+            count += 1
             if best is None or score < best[0]:
                 best = (score, command, path)
     elapsed = (time.perf_counter() - start_time) * 1000
+    if best is None and mode == "braking" and best_nominal is not None:
+        # No candidate has a verified backup. Braking can itself be unsafe
+        # (e.g. crossing traffic hits a stopped robot). Continue with the
+        # lowest-cost nominally clear candidate, explicitly flagged UNSAFE.
+        return Plan(best_nominal[1], best_nominal[2], best_nominal[0], 0, total, elapsed,
+                    backup_checked=True, rejected_by_backup=backup_rejected,
+                    unsafe_fallback=True, fallback_strategy="nominal_no_backup")
     if best is None:
-        # A fail-safe *request*, not a guarantee: an unavoidable collision remains possible.
-        emergency = Command(0.0, 0.0)
+        # Brake request subject to actuator delay/physics; no safety proof.
+        # If the committed prefix is unsafe, this code CANNOT guarantee safety.
+        emergency = Command(0.0, initial.steer)
         path = rollout(initial, emergency, vehicle, cfg.horizon, cfg.sample_dt)
-        return Plan(emergency, path, math.inf, 0, total, elapsed, emergency=True)
-    return Plan(best[1], best[2], best[0], count, total, elapsed)
+        return Plan(emergency, path, math.inf, 0, total, elapsed,
+                    emergency=True, backup_checked=(mode == "braking"),
+                    rejected_by_backup=backup_rejected,
+                    unsafe_fallback=True, fallback_strategy="emergency_brake")
+    return Plan(best[1], best[2], best[0], count, total, elapsed,
+                backup_checked=(mode == "braking"), rejected_by_backup=backup_rejected)

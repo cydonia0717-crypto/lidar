@@ -51,6 +51,10 @@ def scenario(name: str = "crossing", seed: int = 0) -> World:
     if name == "two_targets":
         return World((MovingObstacle("pedestrian", 11.5 + jitter, -4.2, 0.0, 0.65),
                       MovingObstacle("cyclist", 20.5 - jitter, 3.6, -0.35, -0.25, 0.55)))
+    if name == "late_crossing":
+        # Stress test: moving ahead can be safer than stopping into cross-traffic.
+        return World((MovingObstacle("fast-crossing", 0.5 + 0.1 * jitter,
+                                     -4.0, 0.0, 2.3),))
     if name == "empty":
         return World(())
     if name == "narrow":
