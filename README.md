@@ -1,7 +1,55 @@
-# LiDAR Dynamic Obstacle Avoidance
+# 室外阿克曼小车动态避障：二维可复现仿真 (MVP)
 
-Simulation-first research code for a low-speed Ackermann robot navigating among moving obstacles.
+研究用第一阶段原型：**不依赖 ROS / Gazebo / 实车**，用 Python 创建道路和动态障碍物，利用阿克曼运动学模拟小车，滚动采样目标速度与转角，并检查道路和时空碰撞约束，在可行候选中最小化轨迹代价。**当前输入采用仿真器给出的精确动态障碍物位置/速度，并不是激光雷达检测或真实 Kalman 跟踪数据**。
 
-The first implementation is developed on a feature branch and reviewed through a pull request. See the PR for setup instructions, experiments, and validation status.
+## 运行
 
-> All scenarios and measurements in this repository are synthetic simulations unless explicitly documented otherwise.
+需要 Python 3.10+：
+
+~~~bash
+python -m pip install -e '.[dev]'
+lidar-sim --scenario crossing --mode predictive --seed 0 --plot
+lidar-sim --scenario two_targets --mode reactive --seed 0 --plot
+lidar-sim --scenario crossing --compare --seeds 10
+python -m pytest -q
+~~~
+
+不安装 CLI 也可直接执行：
+
+~~~bash
+PYTHONPATH=src python -m lidar_sim.cli --scenario crossing --plot
+~~~
+
+默认将轨迹 CSV、指标 JSON 和（开启 --plot 时）PNG 写入 results/。--compare 对相同场景及相同随机种子分别运行两种规划模式，输出 paired_comparison.csv。不要把这些仿真结果当成实车数据。
+
+## 已实现的内容
+
+- 后轴中心参考的运动学自行车模型，约束最大速度、加速、制动减速度、前轮转角与转角速度。
+- 道路边界、行人横穿、双目标交叉和狭窄道路；种子控制目标位置。
+- 有限候选集 (target_speed, target_steer) 的 3 秒轨迹前推；动态目标在与车辆相同的未来时间戳上按 CV 模型预测。
+- 用保守车体包围圆与目标圆检测碰撞；采样时间步内尚未进行解析连续碰撞检验，不能提供形式化安全保证。
+- 目标函数包含参考路线偏移、纵向前进量、速度改变以及转向改变惩罚；无可行候选时请求制动，**不保证任何情况下都来得及停下**。
+- reactive 模式将障碍物固定在本周期当前的位置；predictive 模式使用已知 CV 运动模型按未来时间进行碰撞检测（并增加一个示例额外余量）。这仅是最简单的对照，不代表全面文献基线。
+- 轨迹 CSV、指标 JSON、轨迹/速度曲线 PNG、pytest 和 GitHub Actions。
+
+## 配置和指标说明
+
+参数在 src/lidar_sim/model.py 的 VehicleConfig、planner.py 的 PlannerConfig 与 experiment.py 的 RunConfig 中。当前数值为演示性质的**假设车辆参数**，未来需要进行底盘标定和参数敏感性分析。起点 (0,0)，前进方向为 +x，道路中心线 y=0。小车几何暂时用保守包围圆替代矩形旋转碰撞体。
+
+- success：到达目标纵向坐标（尚未加入严格的末端横向/航向条件）。
+- collision：仿真实际时刻与障碍物包围圆发生重叠。
+- road_exit：车体保守包围圆超出道路。
+- min_clearance_m：过程中车体与障碍物/边界的最小净距离，负值代表穿透。
+- emergency_steps：所有候选都不满足安全检测而退化到紧急制动指令的周期数。
+- duration_s：到达、碰撞、越界或超时前经过的仿真时间；仅成功的回合应参与平均通行时间比较。
+- mean_planning_ms：当前计算机上各周期 choose_action 的平均墙钟时间，不代表 Jetson 实时性能。
+
+## 近期开发任务（尚未实现）
+
+1. 实验基线完善：在相同安全余量和运动约束下统一比较，增加更复杂的突然转向/停止场景、完整消融及置信区间。
+2. 数据链：仿真带噪测量、漏检、Hungarian 关联、Kalman-CV 跟踪，严格区分真值、量测、估计与预测。
+3. 不确定性：独立轨迹校准/测试划分，覆盖率、误差包络面积和按观测质量分组的可靠性检验；不预设一定优于固定半径。
+4. **重点研究：控制延迟前缀 + 候选动作执行 + 后备制动尾迹**，检查全部时段的车辆扫掠区域与动态目标占据区域/道路边界；实测前暂用假设制动参数做敏感性分析。
+5. 选做：车辆矩形碰撞几何、连续时间碰撞近似、自适应采样、其他标准规划基线、ROS/Gazebo接入与后续实车验证。
+
+所有实验结论仅限于明确的仿真模型与场景。仿真通过不等于真实环境中的安全性或论文创新已经得到验证。
