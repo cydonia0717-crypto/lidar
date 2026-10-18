@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lidar-ackermann-sim"
+version = "0.1.0"
+description = "Reproducible 2D Ackermann dynamic-obstacle-avoidance research simulator"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = ["matplotlib>=3.6"]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.4"]
+
+[project.scripts]
+lidar-sim = "lidar_sim.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
