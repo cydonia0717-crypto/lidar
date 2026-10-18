@@ -53,3 +53,18 @@ PYTHONPATH=src python -m lidar_sim.cli --scenario crossing --plot
 5. 选做：车辆矩形碰撞几何、连续时间碰撞近似、自适应采样、其他标准规划基线、ROS/Gazebo接入与后续实车验证。
 
 所有实验结论仅限于明确的仿真模型与场景。仿真通过不等于真实环境中的安全性或论文创新已经得到验证。
+
+## 第二阶段：控制延迟与完整制动尾迹（第二个开发分支）
+
+已增加 `src/lidar_sim/safety.py`：将延迟队列中还未生效的指令、候选速度/前轮转角、以及按物理制动减速度刹停的后备轨迹串联，用同一时间轴检查移动目标与道路边界。仿真执行也使用同一控制队列，避免规划过程与执行模型不一致。
+
+```bash
+lidar-sim --scenario crossing --compare --seeds 10
+lidar-sim --scenario two_targets --mode braking --plot
+lidar-sim --scenario late_crossing --mode braking --plot --backup-figure
+lidar-sim --scenario crossing --compare --seeds 10 --control-delay .5 --deceleration 1.0
+```
+
+模式 `predictive`：未来障碍物预测但忽略控制队列；`delay_aware`：加入控制延迟前缀；`braking`：进一步加入候选执行结束后的完整制动尾迹；`reactive`：冻结目标当前位置。
+
+日志额外输出 `backup_rejections`、`unsafe_fallback_steps`、`nominal_no_backup_steps`：全部候选没有安全后备方案时**不得声称安全保证**，因为在某些移动目标场景中停车本身也会发生碰撞。当前仿真使用理想目标运动真值，尚无雷达观测误差与实车标定。详见 [第二阶段算法与实验说明](docs/phase2_braking_filter.md)。

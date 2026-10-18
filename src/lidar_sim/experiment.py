@@ -7,9 +7,10 @@ import json
 import math
 from pathlib import Path
 
-from .model import State, VehicleConfig, step
+from .model import Command, State, VehicleConfig
 from .planner import Plan, PlannerConfig, choose_action
 from .world import World, scenario
+from .safety import CommandDelayLine
 
 
 @dataclass(frozen=True)
@@ -34,6 +35,10 @@ class Result:
     emergency_steps: int
     stopped_steps: int
     mean_planning_ms: float
+    backup_rejections: int
+    unsafe_fallback_steps: int
+    nominal_no_backup_steps: int
+    control_delay_s: float
     trace: list[dict]
 
     def metrics(self) -> dict:
@@ -49,7 +54,8 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
     world = scenario(scenario_name, seed)
     state = State(0.0, 0.0, 0.0, rcfg.start_speed)
     min_clearance = float("inf")
-    emergency_steps = stopped_steps = 0
+    emergency_steps = stopped_steps = backup_rejections = unsafe_fallback_steps = nominal_no_backup_steps = 0
+    actuator = CommandDelayLine(Command(rcfg.start_speed, 0.0), pcfg.control_delay_s)
     plan_time = 0.0
     trace = []
     collision = road_exit = success = False
@@ -65,10 +71,13 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
             trace.append({"time": state.time, "x": state.x, "y": state.y,
                           "yaw": state.yaw, "speed": state.speed, "steer": state.steer,
                           "min_clearance": min(physical_road, physical_obstacle),
-                          "command_speed": "", "command_steer": "", "emergency": ""})
+                          "command_speed": "", "command_steer": "", "applied_speed": "", "applied_steer": "", "pending_commands": len(actuator.pending), "backup_rejections": "", "unsafe_fallback": "", "fallback_strategy": "", "emergency": ""})
             break
-        plan: Plan = choose_action(state, world, vcfg, pcfg, mode=mode)
+        plan: Plan = choose_action(state, world, vcfg, pcfg, mode=mode, delay_line=actuator)
         emergency_steps += int(plan.emergency)
+        backup_rejections += plan.rejected_by_backup
+        unsafe_fallback_steps += int(plan.unsafe_fallback)
+        nominal_no_backup_steps += int(plan.fallback_strategy == "nominal_no_backup")
         stopped_steps += int(state.speed < 0.1)
         plan_time += plan.compute_ms
         trace.append({"time": state.time, "x": state.x, "y": state.y,
@@ -76,12 +85,32 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                       "min_clearance": min(physical_road, physical_obstacle),
                       "command_speed": plan.command.target_speed,
                       "command_steer": plan.command.target_steer,
+                      "applied_speed": actuator.active.target_speed,
+                      "applied_steer": actuator.active.target_steer,
+                      "pending_commands": len(actuator.pending),
+                      "backup_rejections": plan.rejected_by_backup,
+                      "unsafe_fallback": int(plan.unsafe_fallback),
+                      "fallback_strategy": plan.fallback_strategy,
                       "emergency": int(plan.emergency)})
-        state = step(state, plan.command, vcfg, rcfg.dt)
+        actuator.enqueue(state.time, plan.command)
+        substeps = actuator.advance_path(state, state.time + rcfg.dt, vcfg,
+                                         min(pcfg.safety_dt, rcfg.dt))
+        for substep in substeps[1:]:
+            physical_road = world.road_clearance(substep, vcfg)
+            physical_obstacle = world.obstacle_clearance(substep, vcfg)
+            min_clearance = min(min_clearance, physical_road, physical_obstacle)
+            state = substep
+            if physical_road < 0 or physical_obstacle < 0:
+                # End at the first detected intermediate collision, not at next 100ms tick.
+                break
+        if physical_road < 0 or physical_obstacle < 0:
+            continue
     return Result(scenario_name, seed, mode, success, collision, road_exit,
                   not (success or collision or road_exit), state.time, min_clearance,
                   emergency_steps, stopped_steps,
-                  plan_time / max(1, len(trace) - 1), trace)
+                  plan_time / max(1, len(trace) - 1),
+                  backup_rejections, unsafe_fallback_steps, nominal_no_backup_steps,
+                  pcfg.control_delay_s, trace)
 
 
 def save_result(result: Result, directory: str | Path) -> tuple[Path, Path]:
@@ -98,12 +127,16 @@ def save_result(result: Result, directory: str | Path) -> tuple[Path, Path]:
     return metrics, trajectory
 
 
-def batch_compare(scenario_names: tuple[str, ...], seeds: int = 5) -> list[dict]:
+def batch_compare(scenario_names: tuple[str, ...], seeds: int = 5,
+                  modes: tuple[str, ...] = ("reactive", "predictive"),
+                  *, vehicle: VehicleConfig | None = None,
+                  planner: PlannerConfig | None = None) -> list[dict]:
     if seeds < 1:
         raise ValueError("seeds must be positive")
     records = []
     for name in scenario_names:
         for seed in range(seeds):
-            for mode in ("reactive", "predictive"):
-                records.append(run(name, seed, mode).metrics())
+            for mode in modes:
+                records.append(run(name, seed, mode,
+                                   vehicle=vehicle, planner=planner).metrics())
     return records

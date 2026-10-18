@@ -7,43 +7,74 @@ import json
 from pathlib import Path
 
 from .experiment import batch_compare, run, save_result
-from .visualize import save_figure
+from .model import Command, State, VehicleConfig
+from .planner import PlannerConfig
+from .safety import CommandDelayLine
+from .world import scenario
+from .visualize import save_figure, save_backup_figure
 
 
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Synthetic 2D Ackermann dynamic-obstacle avoidance simulator")
-    parser.add_argument("--scenario", choices=("crossing", "two_targets", "empty", "narrow"), default="crossing")
-    parser.add_argument("--mode", choices=("reactive", "predictive"), default="predictive")
+    parser.add_argument("--scenario", choices=("crossing", "two_targets", "empty", "narrow", "late_crossing"), default="crossing")
+    parser.add_argument("--mode", choices=("reactive", "predictive", "delay_aware", "braking"), default="predictive")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output", default="results")
     parser.add_argument("--plot", action="store_true")
-    parser.add_argument("--compare", action="store_true", help="Run identical scenarios and seeds with both planner modes")
+    parser.add_argument("--backup-figure", action="store_true",
+                        help="Render the three motion phases for one hypothetical command")
+    parser.add_argument("--control-delay", type=float, default=0.25)
+    parser.add_argument("--deceleration", type=float, default=1.6)
+    parser.add_argument("--execute-window", type=float, default=0.40)
+    parser.add_argument("--compare", action="store_true", help="Run paired scenarios with multiple planners")
+    parser.add_argument("--compare-modes", default="reactive,predictive,delay_aware,braking",
+                        help="Comma-separated planner modes for paired comparison")
     parser.add_argument("--seeds", type=int, default=5, help="Number of paired random seeds for --compare")
     args = parser.parse_args(argv)
+    if args.control_delay < 0 or args.deceleration <= 0 or args.execute_window <= 0:
+        parser.error("delay must be nonnegative, deceleration and execute-window must be positive")
+    vehicle = VehicleConfig(braking=args.deceleration)
+    planner = PlannerConfig(control_delay_s=args.control_delay,
+                            candidate_execute_s=args.execute_window)
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     if args.compare:
-        records = batch_compare((args.scenario,), seeds=args.seeds)
+        modes = tuple(s.strip() for s in args.compare_modes.split(","))
+        if any(mode not in ("reactive", "predictive", "delay_aware", "braking") for mode in modes):
+            parser.error("invalid --compare-modes")
+        records = batch_compare((args.scenario,), seeds=args.seeds, modes=modes,
+                                vehicle=vehicle, planner=planner)
         path = output / f"{args.scenario}_paired_comparison.csv"
         with path.open("w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=list(records[0]))
             writer.writeheader()
             writer.writerows(records)
         print(f"Synthetic paired results: {path}")
-        for mode in ("reactive", "predictive"):
+        for mode in modes:
             subset = [r for r in records if r["mode"] == mode]
             n = len(subset)
-            print(f"{mode}: success={sum(r['success'] for r in subset)}/{n}, "
+            successes = [r["duration_s"] for r in subset if r["success"]]
+            mean_success = sum(successes) / len(successes) if successes else float("nan")
+            print(f"{mode}: success={len(successes)}/{n}, "
                   f"collision={sum(r['collision'] for r in subset)}/{n}, "
-                  f"mean_duration={sum(r['duration_s'] for r in subset)/n:.2f}s")
+                  f"successful_mean_duration={mean_success:.2f}s, "
+                  f"backup_rejections={sum(r['backup_rejections'] for r in subset)}")
         return
-    result = run(args.scenario, args.seed, args.mode)
+    result = run(args.scenario, args.seed, args.mode,
+                 vehicle=vehicle, planner=planner)
     paths = save_result(result, output)
     print(json.dumps(result.metrics(), indent=2))
     print(f"Wrote metrics and trace: {paths[0]}, {paths[1]}")
     if args.plot:
         fig = save_figure(result, output / f"{args.scenario}_{args.mode}_{args.seed}.png")
         print(f"Wrote figure: {fig}")
+    if args.backup_figure:
+        initial = State(0.0, 0.0, 0.0, 1.5)
+        line = CommandDelayLine(Command(initial.speed, initial.steer), planner.control_delay_s)
+        fig = save_backup_figure(initial, Command(vehicle.max_speed, 0.0), line,
+                                 scenario(args.scenario, args.seed), vehicle, planner,
+                                 output / f"{args.scenario}_three_stage_backup.png")
+        print(f"Wrote three-stage preview (not executed): {fig}")
 
 
 if __name__ == "__main__":
