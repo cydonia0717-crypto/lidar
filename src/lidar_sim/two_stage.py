@@ -67,7 +67,8 @@ def continuation_options(first: Command, car: VehicleConfig) -> tuple[Command, .
 
 
 def choose_two_stage(initial: State, world: World, car: VehicleConfig, cfg,
-                     line: CommandDelayLine) -> Plan:
+                     line: CommandDelayLine, *,
+                     forced_first: Command | None = None) -> Plan:
     start = time.perf_counter()
     if cfg.two_stage_second_s <= 0:
         raise ValueError("second-stage window must be positive")
@@ -97,6 +98,8 @@ def choose_two_stage(initial: State, world: World, car: VehicleConfig, cfg,
     for first_v in cfg.speed_samples:
         for first_delta in cfg.steer_samples:
             first = Command(first_v, first_delta)
+            if forced_first is not None and first != forced_first:
+                continue
             row = {"target_speed": first_v, "target_steer": first_delta,
                    "status": "nominal_rejected", "selected": False,
                    "total_cost": float("inf"), "continuation_count": 0}
