@@ -216,3 +216,15 @@ python -m lidar_sim.offset_sensitivity --scenarios two_targets --stresses weak_b
 
 
 **第十三阶段已实跑**： [后轴车身偏置的3×3网格和弱制动失败机理报告](docs/phase13_results.md)。82项单测通过，24回合闭环合成仿真。物理偏置在0.40/0.55/0.70m、规划偏置在0.40/0.55/0.70m下，结果呈强非单调变化：\`assumed=0.55m\`在已知18回合中的对应6个回合全部失败，\`assumed=0.40m\`、\`0.70m\`各成功6/6；独立留出种子又得到0.55m两次碰撞。**这不能解释成应该把车辆“校准”为0.40m，而是暴露了离散轨迹优化的决策敏感性。**此外原seed0的30秒超时已在后期恢复移动、离目标只差0.15m；原seed1则在完全静止时被骑行目标侵入碰撞。
+
+
+## 第十四阶段：超时时限与停车后动态目标侵入（仅诊断）
+
+第十三阶段真实合成轨迹指出：\`two_targets/weak_brake/seed0\`在30秒时恢复前进且车身中心距目标线约0.15m，\`seed1\`在车速0时遭骑行目标侵入。新增无规划策略改动的\`horizon_forensics\`：比较30/35/40秒**实际重跑**结果、验证30秒前两条轨迹前缀数值一致；在停止位置计算合成CV目标静态12秒反事实物理重叠时刻与含margin/padding的规划包络入侵时刻，同时导出分阶段动作拒绝和5秒窗口。
+
+\`\`\`bash
+python -m lidar_sim.horizon_forensics --seeds 0,1 --horizons 30,35,40 \
+  --assumed-offset .55 --physical-offset .55 --output results/phase14-forensics
+\`\`\`
+
+研究设计与科学边界见 [第十四阶段说明](docs/phase14_horizon_intrusion.md)。请不要把30秒末帧距终点近直接认定成功，也不能把固定位置风险视为递归安全保证。
