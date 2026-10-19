@@ -21,6 +21,8 @@ class RunConfig:
     start_speed: float = 1.5
     goal_tolerance: float = 0.6
     physical_road_footprint: str = "disc"
+    # None preserves historical coupling; otherwise physical truth is independent.
+    physical_body_offset_m: float | None = None
     goal_criterion: str = "x_gate"
     goal_lateral_tolerance_m: float = 0.75
     goal_heading_tolerance_deg: float = 15.0
@@ -53,6 +55,8 @@ class Result:
     final_body_center_y_m: float = 0.0
     final_abs_heading_error_deg: float = 0.0
     goal_criterion: str = "x_gate"
+    physical_body_offset_m: float = 0.55
+    assumed_body_offset_m: float = 0.55
 
     def metrics(self) -> dict:
         return {key: value for key, value in asdict(self).items() if key not in ("trace", "decision_snapshot")}
@@ -69,7 +73,16 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
         raise ValueError("unknown physical road footprint")
     if rcfg.goal_criterion not in ("x_gate", "pose_gate"):
         raise ValueError("unknown goal criterion")
-    physical_vehicle = replace(vcfg, road_footprint=rcfg.physical_road_footprint)
+    if not math.isfinite(vcfg.rear_axle_to_body_center_m) or not 0 <= vcfg.rear_axle_to_body_center_m <= vcfg.length / 2:
+        raise ValueError("invalid planning body offset")
+    physical_offset = (vcfg.rear_axle_to_body_center_m
+                       if rcfg.physical_body_offset_m is None
+                       else rcfg.physical_body_offset_m)
+    if not math.isfinite(physical_offset) or not 0 <= physical_offset <= vcfg.length / 2:
+        raise ValueError("invalid physical body offset")
+    physical_vehicle = replace(
+        vcfg, road_footprint=rcfg.physical_road_footprint,
+        rear_axle_to_body_center_m=physical_offset)
     # Inject the same immutable world across paired planners; the simulator
     # never changes the world, so each mode receives identical target truth.
     world = world_override if world_override is not None else scenario(scenario_name, seed)
@@ -181,7 +194,8 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                   pcfg.control_delay_s, trace, decision_snapshot,
                   reached_historical_x_line, reached_pose_gate,
                   final_goal["body_center_y_m"],
-                  final_goal["abs_heading_error_deg"], rcfg.goal_criterion)
+                  final_goal["abs_heading_error_deg"], rcfg.goal_criterion,
+                  physical_offset, vcfg.rear_axle_to_body_center_m)
 
 
 def save_result(result: Result, directory: str | Path) -> tuple[Path, Path]:

@@ -196,3 +196,20 @@ lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
 
 
 **第十二阶段实际结果已完成**： [统一后轴参考点与严格终点位姿联合判据的实测报告](docs/phase12_pilot_results.md)。在相同rearaxle_rectangle物理真值、0.75m横向阈值、15°航向阈值下，8组配对旧状态点居中规划成功3/8、新后轴车体中心规划成功6/8；旧碰撞5次、新碰撞1次，但新方法弱制动仍出现1次碰撞和1次超时。这与第十一阶段13/14（原坐标约定+旧纵向过线规则）**不可直接横向比较**。
+
+
+## 第十三阶段：后轴至车身中心偏置的标定误差敏感性
+
+现有\`two_stage_bodyframe\`的0.55m车身偏置尚未经实车标定。为避免把**规划假设**与**仿真物理真值**混为一谈，新增彼此独立的\`assumed_body_offset_m\`和\`physical_body_offset_m\`：保持相同阿克曼底盘运动学、车长/宽、真实目标轨迹、控制延迟及完整制动约束，比较0.40/0.55/0.70m偏置误差的影响；保留全部成功/碰撞/超时和每个弱制动失败回合的逐帧几何净空、约束拒绝日志。
+
+\`\`\`bash
+python -m lidar_sim.offset_sensitivity --scenarios two_targets --stresses weak_brake \
+ --seeds 0,1 --physical-offsets .40,.55,.70 --assumed-offsets .40,.55,.70 \
+ --max-time 30 --output results/offset-grid
+
+python -m lidar_sim.offset_sensitivity --scenarios two_targets --stresses weak_brake \
+ --seeds 10,11 --physical-offsets .55 --assumed-offsets .40,.55,.70 \
+ --forensic-seeds '' --max-time 30 --output results/offset-holdout
+\`\`\`
+
+所有结果来自二维合成CV目标仿真，无实车/3D雷达测量或保证。实验设计与边界详见 [第十三阶段研究方案](docs/phase13_offset_sensitivity.md)。
