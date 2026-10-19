@@ -97,7 +97,7 @@ def test_short_smoke_grid_saves_each_result_and_metadata(tmp_path):
     with (out/"episodes.csv").open(newline="",encoding="utf8") as fd:
         actual=list(csv.DictReader(fd))
     assert len(actual)==4
-    assert {(r["physical_body_offset_m"],r["assumed_body_offset_m"])
-             for r in actual} == {(".4",".4"),(".4",".55"),(".7",".4"),(".7",".55")}
+    assert {(float(r["physical_body_offset_m"]),float(r["assumed_body_offset_m"]))
+             for r in actual} == {(.4,.4),(.4,.55),(.7,.4),(.7,.55)}
     assert (out/"design.json").exists()
     assert (out/"offset_grid_summary.csv").exists()
