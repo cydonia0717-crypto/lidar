@@ -127,3 +127,17 @@ lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
 \`\`\`
 
 实际先导对照详情见 [第五阶段方法及边界](docs/phase5_post_stop_viability.md) 与 [第五阶段初步实验报告](docs/phase5_pilot_results.md)。目前仅属于合成仿真改进。新增静止检查并没有获得全面更好的成功率，可能增加等待时间和保守性。
+
+
+## 第八阶段：两阶段速度/转角序列规划（新结构消融）
+
+旧的单阶段候选规划只在0.4s执行后立刻推演刹停，难以表示让行和连续绕行等多步动作。新增 \`two_stage\`：生成第一段25组候选，并为每一组尝试少量第二段动作；对**延迟前缀→动作1→动作2→物理制动→停后6s**的整段道路和动态目标占据进行硬碰撞检查，选择最低代价的可行组合；只执行动作1，然后滚动重新规划。
+
+\`\`\`bash
+lidar-sim --scenario two_targets --mode two_stage --seed 0 --plot --decision-figure
+lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
+  --modes braking_hold,two_stage --seeds 2 --max-time 30 \
+  --output results/two-stage-ablation --print-episodes --plot
+\`\`\`
+
+详见 [第八阶段方法说明](docs/phase8_two_stage.md)。新算法依然是合成二维理想CV目标，**不是雷达实测也不是可证明安全算法**。仿真跑完必须检查成功、碰撞、超时和计算开销；两阶段效果不能预先保证。

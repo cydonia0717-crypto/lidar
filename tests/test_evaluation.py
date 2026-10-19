@@ -192,3 +192,27 @@ def test_pairwise_post_stop_ablation_classifies_timeout_separately(tmp_path):
     assert files["paired_post_stop"].exists()
     with files["paired_post_stop"].open(newline="", encoding="utf-8") as fh:
         assert len(list(csv.DictReader(fh))) == 1
+
+
+def test_paired_two_stage_reports_runtime_cost_and_all_outcomes(tmp_path):
+    from lidar_sim.evaluation import paired_two_stage_effects
+    fixed = dict(case_id="two_targets__nominal__0", scenario="two_targets",
+                 stress="nominal", seed=0, target_speed_scale=1.0,
+                 road_half_width_m=3.25, control_delay_s=.25,
+                 braking_mps2=1.6)
+    hold = dict(fixed, mode="braking_hold", success=False, collision=True,
+                timeout=False, road_exit=False, duration_s=19,
+                mean_planning_ms=4.0)
+    two = dict(fixed, mode="two_stage", success=False, collision=False,
+               timeout=True, road_exit=False, duration_s=30,
+               mean_planning_ms=13.0)
+    pairs = paired_two_stage_effects([hold, two])
+    assert len(pairs) == 1
+    assert pairs[0]["collision_change"] == -1
+    assert pairs[0]["timeout_change"] == 1
+    assert pairs[0]["success_change"] == 0
+    assert pairs[0]["planning_ms_change"] == 9
+    assert pairs[0]["both_success_time_change_s"] == ""
+    two["road_half_width_m"] = 2.9
+    with pytest.raises(ValueError, match="nonpaired"):
+        paired_two_stage_effects([hold, two])
