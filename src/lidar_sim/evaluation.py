@@ -152,12 +152,15 @@ def summarize(records: list[dict]) -> list[dict]:
         n = len(rows)
         num_success = sum(bool(r["success"]) for r in rows)
         num_collision = sum(bool(r["collision"]) for r in rows)
+        num_timeout = sum(bool(r.get("timeout", False)) for r in rows)
+        num_road_exit = sum(bool(r.get("road_exit", False)) for r in rows)
         success_low, success_high = wilson_95(num_success, n)
         collision_low, collision_high = wilson_95(num_collision, n)
         good_times = [r["duration_s"] for r in rows if r["success"]]
         summaries.append({
             "scenario": name, "stress": stress, "mode": mode,
             "n": n, "successes": num_success, "collisions": num_collision,
+            "timeouts": num_timeout, "road_exits": num_road_exit,
             "success_rate": num_success / n, "success_ci_low": success_low,
             "success_ci_high": success_high, "collision_rate": num_collision / n,
             "collision_ci_low": collision_low, "collision_ci_high": collision_high,
@@ -207,6 +210,48 @@ def paired_braking_effects(records: list[dict]) -> list[dict]:
     return pairs
 
 
+def paired_post_stop_effects(records: list[dict]) -> list[dict]:
+    """Compare post-stop occupancy filtering to legacy braking by SAME trial.
+
+    Success, collision, timeout and road exit must remain separate outcomes.
+    Results cannot be interpreted as improved safety without considering
+    changes in completion probability and travel time.
+    """
+    trials: dict[str, dict[str, dict]] = {}
+    for row in records:
+        bucket = trials.setdefault(row["case_id"], {})
+        if row["mode"] in bucket:
+            raise ValueError("duplicate case/mode result")
+        bucket[row["mode"]] = row
+    pairs = []
+    for key, methods in sorted(trials.items()):
+        if "braking" not in methods or "braking_hold" not in methods:
+            continue
+        a = methods["braking"]
+        b = methods["braking_hold"]
+        same = ("scenario", "stress", "seed", "target_speed_scale",
+                "road_half_width_m", "control_delay_s", "braking_mps2")
+        if any(a[k] != b[k] for k in same):
+            raise ValueError(f"unpaired physical trial: {key}")
+        pair = {
+            "case_id": key, "scenario": a["scenario"],
+            "stress": a["stress"], "seed": a["seed"],
+        }
+        for metric in ("success", "collision", "timeout", "road_exit"):
+            pair["braking_" + metric] = bool(a[metric])
+            pair["braking_hold_" + metric] = bool(b[metric])
+            pair[metric + "_change"] = int(bool(b[metric])) - int(bool(a[metric]))
+        pair["clearance_change_m"] = b["min_clearance_m"] - a["min_clearance_m"]
+        pair["stopped_steps_change"] = b["stopped_steps"] - a["stopped_steps"]
+        pair["hold_backup_rejections"] = b["backup_rejections"]
+        pair["hold_unsafe_fallback_steps"] = b["unsafe_fallback_steps"]
+        pair["both_success_time_change_s"] = (
+            b["duration_s"] - a["duration_s"]
+            if b["success"] and a["success"] else "")
+        pairs.append(pair)
+    return pairs
+
+
 def _write_csv(path: Path, rows: list[dict]) -> None:
     if not rows:
         raise ValueError(f"no rows for {path.name}")
@@ -227,6 +272,7 @@ def save_study(records: list[dict], output: str | Path,
         "episodes": folder / "episodes.csv",
         "summary": folder / "summary_by_scenario_stress_mode.csv",
         "paired": folder / "paired_braking_effects.csv",
+        "paired_post_stop": folder / "paired_post_stop_effects.csv",
         "metadata": folder / "metadata.json",
     }
     _write_csv(files["episodes"], records)
@@ -236,6 +282,11 @@ def save_study(records: list[dict], output: str | Path,
         _write_csv(files["paired"], pairs)
     else:
         files.pop("paired")
+    hold_pairs = paired_post_stop_effects(records)
+    if hold_pairs:
+        _write_csv(files["paired_post_stop"], hold_pairs)
+    else:
+        files.pop("paired_post_stop")
     payload = {
         "source": "synthetic 2D Ackermann world, ideal CV obstacle motion truth",
         "not": "real LiDAR data, Kalman estimates, or a safety guarantee",
@@ -320,6 +371,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--max-time", type=float, default=35.0)
     parser.add_argument("--output", default="results/evaluation")
     parser.add_argument("--plot", action="store_true")
+    parser.add_argument("--print-episodes", action="store_true",
+                        help="Print each episode status to diagnose non-collision failures")
     parser.add_argument("--failure-traces-per-group", type=int, default=2,
                         help="Save up to N collision/timeout traces per scenario/stress/mode")
     args = parser.parse_args(argv)
@@ -352,7 +405,17 @@ def main(argv: list[str] | None = None) -> None:
         print(f"{row['scenario']}/{row['stress']}/{row['mode']}: "
               f"success={row['successes']}/{row['n']}, "
               f"collision={row['collisions']}/{row['n']}, "
+              f"timeout={row['timeouts']}/{row['n']}, "
+              f"road_exit={row['road_exits']}/{row['n']}, "
               f"mean_success_time={row['mean_success_time_s']}")
+    if args.print_episodes:
+        for row in results:
+            print(f"EPISODE {row['case_id']} {row['mode']}: "
+                  f"success={row['success']}, collision={row['collision']}, "
+                  f"timeout={row['timeout']}, road_exit={row['road_exit']}, "
+                  f"duration={row['duration_s']:.2f}s, "
+                  f"fallback_steps={row['unsafe_fallback_steps']}, "
+                  f"backup_rejections={row['backup_rejections']}")
 
 
 if __name__ == "__main__":
