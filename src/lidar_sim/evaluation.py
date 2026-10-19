@@ -84,6 +84,7 @@ def evaluate_cases(specs: Iterable[TrialSpec], modes: tuple[str, ...] =
                    goal_heading_tolerance_deg: float = 15.,
                    assumed_body_offset_m: float | None = None,
                    physical_body_offset_m: float | None = None,
+                   all_trace_dir: str | Path | None = None,
                    failure_trace_dir: str | Path | None = None,
                    failure_traces_per_group: int = 0) -> list[dict]:
     """Return all raw individual rollouts, never aggregate away failures."""
@@ -122,6 +123,13 @@ def evaluate_cases(specs: Iterable[TrialSpec], modes: tuple[str, ...] =
                               goal_heading_tolerance_deg=goal_heading_tolerance_deg),
                           world_override=trial.world)
             trace_file = ""
+            full_trace_file = ""
+            if all_trace_dir is not None:
+                folder = Path(all_trace_dir)
+                folder.mkdir(parents=True, exist_ok=True)
+                target = folder / f"{spec.case_id}__{mode}.csv"
+                _write_csv(target, outcome.trace)
+                full_trace_file = str(target)
             if (failure_trace_dir is not None and failure_traces_per_group > 0
                     and (outcome.collision or outcome.road_exit or outcome.timeout)):
                 key = (spec.name, spec.stress, mode)
@@ -134,6 +142,7 @@ def evaluate_cases(specs: Iterable[TrialSpec], modes: tuple[str, ...] =
                     saved_counts[key] = saved_counts.get(key, 0) + 1
             records.append({
                 "failure_trace_file": trace_file,
+                "full_trace_file": full_trace_file,
                 "case_id": spec.case_id, "scenario": spec.name,
                 "stress": spec.stress, "seed": spec.seed, "mode": mode,
                 "target_speed_scale": trial.target_speed_scale,
@@ -395,6 +404,55 @@ def paired_bodyframe_effects(records: list[dict]) -> list[dict]:
     return result
 
 
+
+def paired_viability_effects(records: list[dict]) -> list[dict]:
+    """Strict pair-by-case audit of extra lookahead, including CPU overhead."""
+    groups: dict[str, dict[str, dict]] = {}
+    for r in records:
+        slot=groups.setdefault(r["case_id"],{})
+        if r["mode"] in slot:
+            raise ValueError("duplicate mode within paired case")
+        slot[r["mode"]]=r
+    result=[]
+    for case_id, modes in sorted(groups.items()):
+        if not {"two_stage_bodyframe","two_stage_viability"}.issubset(modes):
+            continue
+        old=modes["two_stage_bodyframe"]
+        new=modes["two_stage_viability"]
+        common=("scenario","stress","seed","target_speed_scale",
+                "road_half_width_m","control_delay_s","braking_mps2",
+                "physical_road_footprint","physical_body_offset_m",
+                "assumed_body_offset_m","goal_criterion",
+                "goal_lateral_tolerance_m","goal_heading_tolerance_deg")
+        if any(old[field] != new[field] for field in common):
+            raise ValueError("viability comparison changed physical/goal conditions: "+case_id)
+        if old["physical_road_footprint"] != "rearaxle_rectangle" or old["goal_criterion"] != "pose_gate":
+            raise ValueError("viability comparison requires common bodyframe + pose goal")
+        out={"case_id":case_id,"stress":old["stress"],"scenario":old["scenario"],
+             "seed":old["seed"]}
+        for key in ("success","collision","timeout","road_exit"):
+            out["base_"+key]=bool(old[key])
+            out["viability_"+key]=bool(new[key])
+            out[key+"_change"]=int(bool(new[key]))-int(bool(old[key]))
+        out["base_duration_s"]=old["duration_s"]
+        out["viability_duration_s"]=new["duration_s"]
+        out["both_success_duration_change_s"]=(
+            new["duration_s"]-old["duration_s"]
+            if old["success"] and new["success"] else "")
+        out["base_mean_planning_ms"]=old["mean_planning_ms"]
+        out["viability_mean_planning_ms"]=new["mean_planning_ms"]
+        out["planning_ms_change"]=new["mean_planning_ms"]-old["mean_planning_ms"]
+        out["planning_time_ratio"]=(
+            new["mean_planning_ms"]/old["mean_planning_ms"]
+            if old["mean_planning_ms"]>0 else "")
+        # The simulator does NOT feed the above wall-clock planning time back
+        # into its 0.1s physical actuator period. Do not infer realtime safety.
+        out["planner_period_budget_ms"]=100.0
+        out["viability_mean_over_100ms"]=new["mean_planning_ms"]>100.0
+        result.append(out)
+    return result
+
+
 def _write_csv(path: Path, rows: list[dict]) -> None:
     if not rows:
         raise ValueError(f"no rows for {path.name}")
@@ -419,6 +477,7 @@ def save_study(records: list[dict], output: str | Path,
         "paired_two_stage": folder / "paired_two_stage_effects.csv",
         "paired_road_footprint": folder / "paired_road_footprint_effects.csv",
         "paired_bodyframe": folder / "paired_bodyframe_effects.csv",
+        "paired_viability": folder / "paired_viability_effects.csv",
         "metadata": folder / "metadata.json",
     }
     _write_csv(files["episodes"], records)
@@ -448,12 +507,22 @@ def save_study(records: list[dict], output: str | Path,
         _write_csv(files["paired_bodyframe"], frame_pairs)
     else:
         files.pop("paired_bodyframe")
+    future_pairs=paired_viability_effects(records)
+    if future_pairs:
+        _write_csv(files["paired_viability"],future_pairs)
+    else:
+        files.pop("paired_viability")
     payload = {
         "source": "synthetic 2D Ackermann world, ideal CV obstacle motion truth",
         "not": "real LiDAR data, Kalman estimates, or a safety guarantee",
         "actual_execution_delay": "identical within a paired case for all modes",
         "baseline_padding": "identical cfg.prediction_padding for all planner modes",
-        "success_condition": "ego x reaches goal_x - goal_tolerance; yaw/lateral terminal error not enforced",
+        "success_condition": (
+            "physical vehicle body-center longitudinal goal section, lateral <=0.75m, heading <=15deg"
+            if (inputs or {}).get("goal_criterion")=="pose_gate"
+            else "legacy longitudinal x threshold; no heading or lateral requirement"),
+        "simulation_wallclock_note": (
+            "planner compute_ms is measured but NOT added to 100ms simulated actuation period"),
         "collision_check": "discrete sampled conservative discs; no continuous-time guarantee",
         "confidence_interval": "per-stratum 95% Wilson interval; excludes cluster dependence",
         "design": inputs or {},
@@ -543,6 +612,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--plot", action="store_true")
     parser.add_argument("--print-episodes", action="store_true",
                         help="Print each episode status to diagnose non-collision failures")
+    parser.add_argument("--all-traces", action="store_true",
+                        help="Persist EVERY closed-loop per-frame record including successes")
     parser.add_argument("--failure-traces-per-group", type=int, default=2,
                         help="Save up to N collision/timeout traces per scenario/stress/mode")
     args = parser.parse_args(argv)
@@ -565,7 +636,8 @@ def main(argv: list[str] | None = None) -> None:
         goal_criterion=args.goal_criterion,
         goal_lateral_tolerance_m=args.goal_lateral_tolerance,
         goal_heading_tolerance_deg=args.goal_heading_tolerance_deg,
-                             failure_trace_dir=Path(args.output) / "failure_traces",
+        all_trace_dir=(Path(args.output)/"all_traces") if args.all_traces else None,
+        failure_trace_dir=Path(args.output) / "failure_traces",
                              failure_traces_per_group=args.failure_traces_per_group)
     files = save_study(results, args.output,
                        inputs={"scenarios": names, "stresses": stresses, "modes": modes,
@@ -576,7 +648,8 @@ def main(argv: list[str] | None = None) -> None:
                                "goal_criterion": args.goal_criterion,
                                "goal_lateral_tolerance_m": args.goal_lateral_tolerance,
                                "goal_heading_tolerance_deg": args.goal_heading_tolerance_deg,
-                               "max_failure_traces_per_group": args.failure_traces_per_group},
+                               "max_failure_traces_per_group": args.failure_traces_per_group,
+                               "all_traces": args.all_traces},
                        plot=args.plot)
     for name, path in files.items():
         print(f"{name}: {path}")

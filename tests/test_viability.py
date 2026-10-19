@@ -104,3 +104,34 @@ def test_short_real_plant_uses_same_physical_truth_and_goal():
     assert result.trace[0]["lookahead_enabled"]==1
     assert result.trace[0]["lookahead_probed"]>=1
     assert not result.collision and not result.road_exit
+
+
+def test_paired_viability_csv_and_all_episode_traces(tmp_path):
+    import csv
+    from pathlib import Path
+    from lidar_sim.evaluation import (TrialSpec, evaluate_cases,
+                                       paired_viability_effects, save_study)
+    output=tmp_path/"study"
+    rows=evaluate_cases(
+        [TrialSpec("empty",0,"nominal")],
+        ("two_stage_bodyframe","two_stage_viability"),
+        max_time=.2,physical_road_footprint="rearaxle_rectangle",
+        goal_criterion="pose_gate",
+        all_trace_dir=output/"all_traces")
+    pairs=paired_viability_effects(rows)
+    assert len(pairs)==1
+    assert pairs[0]["viability_mean_planning_ms"]>0
+    assert pairs[0]["base_mean_planning_ms"]>0
+    assert len(list((output/"all_traces").glob("*.csv")))==2
+    for row in rows:
+        assert Path(row["full_trace_file"]).exists()
+    files=save_study(rows,output,
+        inputs={"goal_criterion":"pose_gate"})
+    with files["paired_viability"].open(encoding="utf8",newline="") as fh:
+        assert len(list(csv.DictReader(fh)))==1
+    mismatched=[rows[0],dict(rows[1],goal_lateral_tolerance_m=1.5)]
+    with pytest.raises(ValueError,match="physical/goal"):
+        paired_viability_effects(mismatched)
+    with pytest.raises(ValueError,match="requires common"):
+        paired_viability_effects([
+            dict(r,goal_criterion="x_gate") for r in rows])
