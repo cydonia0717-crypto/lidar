@@ -111,3 +111,19 @@ lidar-eval --output results/eval_main --plot
 GitHub Actions 已实际运行 **36次配对合成仿真**。在单人横穿场景，三种模式全部通过；在双目标场景，加入制动筛选的 `braking` 并未比 `delay_aware` 改善成功/碰撞结果。请阅读 [实际先导实验结果与失败诊断计划](docs/phase4_pilot_findings.md)，不要把尚未验证的创新收益写成已经实现。
 
 批量程序现在默认保存每个场景×压力×方法最多2个失败回合的完整 CSV 状态轨迹到 `failure_traces/`，使用 `--failure-traces-per-group 0` 可以关闭。重点是分析失败发生在哪里、当时还有哪些可用动作、何时进入了没有经过安全验证的后备退化状态。
+
+
+## 第五阶段：动态目标撞向停车位置的事故复现与后停驻占据检查
+
+自动化诊断已复现并报告：双目标回合中，车辆约10—12秒进入无可行候选动作的紧急制动退化状态，随后保持静止，被经过的骑行者碰撞。原 \`braking\` 只检查至车辆刹停、无法识别几秒后到来的目标。
+
+新增消融 \`braking_hold\`：在原三段运动后，继续检验静止停车位置在未来6秒内是否与动态目标的CV轨迹冲突；原 \`braking\` 原样保留。参数 \`--stationary-hold\` 可控制检查时间，传0秒时必须与原制动筛选一致。
+
+\`\`\`bash
+lidar-sim --scenario two_targets --mode braking_hold --stationary-hold 6 --plot --decision-figure
+lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
+ --modes braking,braking_hold --seeds 3 --max-time 30 \
+ --output results/post-stop-ablation --plot --print-episodes
+\`\`\`
+
+实际先导对照详情见 [第五阶段方法及边界](docs/phase5_post_stop_viability.md) 与 [第五阶段初步实验报告](docs/phase5_pilot_results.md)。目前仅属于合成仿真改进。新增静止检查并没有获得全面更好的成功率，可能增加等待时间和保守性。

@@ -7,7 +7,7 @@ import time
 
 from .model import Command, State, VehicleConfig, step
 from .world import World
-from .safety import CommandDelayLine, backup_segments
+from .safety import CommandDelayLine, backup_segments, braking_then_hold
 from .decision import trajectory_cost_breakdown
 
 
@@ -28,6 +28,7 @@ class PlannerConfig:
     control_delay_s: float = 0.25
     candidate_execute_s: float = 0.40
     safety_dt: float = 0.05
+    stationary_hold_s: float = 6.0
 
 
 @dataclass
@@ -94,11 +95,13 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
     predictive: CV moving obstacles, but planner assumes instant actuation.
     delay_aware: use actual already-queued commands during actuator delay.
     braking: delay_aware plus execute-window/backup-braking tail filter.
+    braking_hold: braking plus explicit occupancy check *after* the car stops
+                  for stationary_hold_s seconds. Neither mode is formally safe.
 
     All modes have the same *actual* actuator delay in closed-loop experiments.
     Future versions will replace the ideal target state with radar tracking.
     """
-    if mode not in ("reactive", "predictive", "delay_aware", "braking"):
+    if mode not in ("reactive", "predictive", "delay_aware", "braking", "braking_hold"):
         raise ValueError(f"unknown planner mode: {mode}")
     start_time = time.perf_counter()
     if delay_line is None:
@@ -106,7 +109,7 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
     if abs(delay_line.delay_s - cfg.control_delay_s) > 1e-8:
         raise ValueError("planner/actuator control delays must agree")
     prefix = None
-    if mode in ("delay_aware", "braking"):
+    if mode in ("delay_aware", "braking", "braking_hold"):
         # Use the *queued* historical commands, not just the most recent one.
         prefix = delay_line.copy().advance_path(
             initial, initial.time + cfg.control_delay_s, vehicle, cfg.safety_dt)
@@ -143,11 +146,18 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
                 continue
             if best_nominal is None or score < best_nominal[0]:
                 best_nominal = (score, command, path, costs)
-            if mode == "braking":
+            if mode in ("braking", "braking_hold"):
                 segs = backup_segments(initial, command, delay_line, vehicle,
                                        cfg.candidate_execute_s, cfg.safety_dt)
-                # Check each state in all three stages, including stopped endpoint.
-                if not collision_free(segs.complete, world, vehicle,
+                # The original braking baseline only tests through reaching rest.
+                # The new ablation additionally tests occupancy at that same
+                # stopping position over a finite future period.
+                if mode == "braking_hold":
+                    future_path = braking_then_hold(
+                        segs, cfg.stationary_hold_s, cfg.safety_dt)
+                else:
+                    future_path = segs.complete
+                if not collision_free(future_path, world, vehicle,
                                       predict=True, padding=padding):
                     backup_rejected += 1
                     info["status"] = "backup_rejected"
@@ -165,7 +175,7 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
                 row["status"] = status
                 break
         return entry[3].as_record()
-    if best is None and mode == "braking" and best_nominal is not None:
+    if best is None and mode in ("braking", "braking_hold") and best_nominal is not None:
         # No candidate has a verified backup. Braking can itself be unsafe
         # (e.g. crossing traffic hits a stopped robot). Continue with the
         # lowest-cost nominally clear candidate, explicitly flagged UNSAFE.
@@ -180,11 +190,11 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
         emergency = Command(0.0, initial.steer)
         path = rollout(initial, emergency, vehicle, cfg.horizon, cfg.sample_dt)
         return Plan(emergency, path, math.inf, 0, total, elapsed,
-                    emergency=True, backup_checked=(mode == "braking"),
+                    emergency=True, backup_checked=(mode in ("braking", "braking_hold")),
                     rejected_by_backup=backup_rejected,
                     unsafe_fallback=True, fallback_strategy="emergency_brake",
                     diagnostics=diagnostics)
     parts = report_selection(best, "selected")
     return Plan(best[1], best[2], best[0], count, total, elapsed,
-                backup_checked=(mode == "braking"), rejected_by_backup=backup_rejected,
+                backup_checked=(mode in ("braking", "braking_hold")), rejected_by_backup=backup_rejected,
                 cost_parts=parts, diagnostics=diagnostics)

@@ -109,3 +109,31 @@ def backup_segments(initial: State, command: Command, line: CommandDelayLine,
         candidate.append(step(candidate[-1], command, vehicle, h))
     brake = braking_tail(candidate[-1], vehicle, dt)
     return BackupSegments(prefix, candidate, brake)
+
+
+def stationary_hold(initial: State, duration_s: float, dt: float) -> list[State]:
+    """Append hypothetical occupancy *after* stopping.
+
+    The ego's position is held fixed while the obstacle CV trajectories keep
+    advancing. This catches a moving target arriving at the stopping location
+    several seconds after the car reaches speed zero. A finite holding horizon
+    cannot be interpreted as perpetual safety after parking.
+    """
+    if duration_s < 0 or dt <= 0:
+        raise ValueError("holding duration must be nonnegative and dt positive")
+    if initial.speed > 1e-7:
+        raise ValueError("hold segment must start at rest")
+    states = [initial]
+    end_time = initial.time + duration_s
+    while states[-1].time < end_time - _EPS:
+        t_next = min(states[-1].time + dt, end_time)
+        states.append(State(initial.x, initial.y, initial.yaw, 0.0,
+                            initial.steer, t_next))
+    return states
+
+
+def braking_then_hold(segments: BackupSegments, duration_s: float,
+                      dt: float) -> list[State]:
+    """Full delay/action/braking path plus post-stop dynamic occupancy check."""
+    held = stationary_hold(segments.brake[-1], duration_s, dt)
+    return segments.complete + held[1:]

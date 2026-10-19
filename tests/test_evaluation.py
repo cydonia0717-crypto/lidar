@@ -167,3 +167,28 @@ def test_csv_writer_handles_optional_diagnostic_columns(tmp_path):
         rows = list(csv.DictReader(fh))
     assert rows[1]["cost_route"] == "2.0"
     assert rows[0]["cost_route"] == ""
+
+
+def test_pairwise_post_stop_ablation_classifies_timeout_separately(tmp_path):
+    from lidar_sim.evaluation import paired_post_stop_effects
+    physical = dict(case_id="two_targets__weak_brake__3", scenario="two_targets",
+                    stress="weak_brake", seed=3, target_speed_scale=1.0,
+                    road_half_width_m=3.25, control_delay_s=.25, braking_mps2=.9,
+                    mean_planning_ms=0.0)
+    before = dict(physical, mode="braking", success=False, collision=True,
+                  timeout=False, road_exit=False, min_clearance_m=-.05,
+                  stopped_steps=70, backup_rejections=0,
+                  unsafe_fallback_steps=11, duration_s=14)
+    after = dict(physical, mode="braking_hold", success=False, collision=False,
+                 timeout=True, road_exit=False, min_clearance_m=.15,
+                 stopped_steps=120, backup_rejections=150,
+                 unsafe_fallback_steps=8, duration_s=30)
+    effect = paired_post_stop_effects([before, after])[0]
+    assert effect["collision_change"] == -1
+    assert effect["timeout_change"] == 1
+    assert effect["success_change"] == 0
+    assert effect["both_success_time_change_s"] == ""
+    files = save_study([before, after], tmp_path)
+    assert files["paired_post_stop"].exists()
+    with files["paired_post_stop"].open(newline="", encoding="utf-8") as fh:
+        assert len(list(csv.DictReader(fh))) == 1
