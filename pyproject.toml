@@ -15,6 +15,7 @@ dev = ["pytest>=7.4"]
 
 [project.scripts]
 lidar-sim = "lidar_sim.cli:main"
+lidar-eval = "lidar_sim.evaluation:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]

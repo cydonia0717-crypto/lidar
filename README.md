@@ -76,12 +76,38 @@ lidar-sim --scenario crossing --compare --seeds 10 --control-delay .5 --decelera
 
 所有正常动作的约束状态、总成本和选中标志都能在CSV中审计；闭环 trace 记录被选择动作的各成本分项。可以直接生成组会需要的决策对比图（计算得分，不是效果假想图）：
 
-\`\`\`bash
+```bash
 lidar-sim --scenario crossing --mode braking --seed 0 --plot --decision-figure
 lidar-sim --scenario crossing --mode braking --seed 0 --clearance-weight 2.0 --decision-figure
 pytest -q
-\`\`\`
+```
 
-新增的文件是 results/ 下 \`*_decision_candidates.csv\` 和 \`*_decision.png\`。不同模式的安全 padding 统一，防止对照时因安全余量不同而误判提升。
+新增的文件是 results/ 下 `*_decision_candidates.csv` 和 `*_decision.png`。不同模式的安全 padding 统一，防止对照时因安全余量不同而误判提升。
 
 **仍未完成的论文部分**：带噪声的目标跟踪/漏检、一般曲线参考路线、目标预测误差校准、闭环独立测试的制动安全收益验证。具体数学公式与科学边界详见 [决策层算法说明](docs/phase3_decision_layer.md)。
+
+
+## 第四阶段：仿真配对对照与参数敏感性实验
+
+增加独立命令 `lidar-eval`，按**同一目标轨迹、同一车辆参数、同一延迟、同一场景随机种子**运行多个决策方法，并改变单一压力因素：控制延迟、刹车能力、动态目标速度、道路宽度。
+
+```bash
+# 快速验证：2场景×2压力×3种子×3方法=36次仿真
+lidar-eval --scenarios crossing,two_targets \
+  --stresses nominal,weak_brake --modes predictive,delay_aware,braking \
+  --seeds 3 --output results/eval_quick --plot
+
+# 常规评估：默认4场景×5压力×5种子×3方法=300次仿真
+lidar-eval --output results/eval_main --plot
+```
+
+输出原始回合 `episodes.csv`、分层 `summary_by_scenario_stress_mode.csv`、同场景差分 `paired_braking_effects.csv`、全部实验假设 `metadata.json`、成功/碰撞率对比图 `rates_by_stress.png`。Wilson 95%区间仅是简单描述统计，不能忽视场景之间的相关性或仿真模型误差。尤其不能只凭3~5组种子做论文中的显著结论。
+
+详见 [第四阶段实验设计](docs/phase4_paired_sensitivity.md)。本项目当前仍然**只包含理想CV目标的人工合成数据**，不存在真实雷达实测和安全性形式化保证。
+
+
+### 第四阶段先导实验与失败回合追踪
+
+GitHub Actions 已实际运行 **36次配对合成仿真**。在单人横穿场景，三种模式全部通过；在双目标场景，加入制动筛选的 `braking` 并未比 `delay_aware` 改善成功/碰撞结果。请阅读 [实际先导实验结果与失败诊断计划](docs/phase4_pilot_findings.md)，不要把尚未验证的创新收益写成已经实现。
+
+批量程序现在默认保存每个场景×压力×方法最多2个失败回合的完整 CSV 状态轨迹到 `failure_traces/`，使用 `--failure-traces-per-group 0` 可以关闭。重点是分析失败发生在哪里、当时还有哪些可用动作、何时进入了没有经过安全验证的后备退化状态。

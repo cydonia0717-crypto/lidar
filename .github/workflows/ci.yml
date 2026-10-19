@@ -13,6 +13,10 @@ jobs:
       - run: python -m pip install -e '.[dev]'
       - run: python -m pytest -q
       - run: lidar-sim --scenario crossing --seed 0 --output results --plot
+      - run: lidar-eval --scenarios empty --stresses nominal --modes delay_aware,braking --seeds 1 --max-time 1 --output results/eval-smoke --plot
+      # Small but real paired research pilot; output contains every episode.
+      # These are synthetic scenario results, not field validation.
+      - run: lidar-eval --scenarios crossing,two_targets --stresses nominal,weak_brake --modes predictive,delay_aware,braking --seeds 3 --max-time 30 --output results/eval-study --plot
       - uses: actions/upload-artifact@v4
         with:
           name: crossing-simulation-output
