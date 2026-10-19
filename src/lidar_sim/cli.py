@@ -17,7 +17,7 @@ from .visualize import save_figure, save_backup_figure, save_decision_figure
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Synthetic 2D Ackermann dynamic-obstacle avoidance simulator")
     parser.add_argument("--scenario", choices=("crossing", "two_targets", "empty", "narrow", "late_crossing"), default="crossing")
-    parser.add_argument("--mode", choices=("reactive", "predictive", "delay_aware", "braking"), default="predictive")
+    parser.add_argument("--mode", choices=("reactive", "predictive", "delay_aware", "braking", "braking_hold"), default="predictive")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output", default="results")
     parser.add_argument("--plot", action="store_true")
@@ -28,27 +28,30 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--control-delay", type=float, default=0.25)
     parser.add_argument("--deceleration", type=float, default=1.6)
     parser.add_argument("--execute-window", type=float, default=0.40)
+    parser.add_argument("--stationary-hold", type=float, default=6.0,
+                        help="How long to check the stopping position after reaching rest")
     parser.add_argument("--clearance-weight", type=float, default=0.6)
     parser.add_argument("--heading-weight", type=float, default=0.4)
     parser.add_argument("--compare", action="store_true", help="Run paired scenarios with multiple planners")
-    parser.add_argument("--compare-modes", default="reactive,predictive,delay_aware,braking",
+    parser.add_argument("--compare-modes", default="reactive,predictive,delay_aware,braking,braking_hold",
                         help="Comma-separated planner modes for paired comparison")
     parser.add_argument("--seeds", type=int, default=5, help="Number of paired random seeds for --compare")
     args = parser.parse_args(argv)
-    if args.control_delay < 0 or args.deceleration <= 0 or args.execute_window <= 0:
+    if args.control_delay < 0 or args.deceleration <= 0 or args.execute_window <= 0 or args.stationary_hold < 0:
         parser.error("delay must be nonnegative, deceleration and execute-window must be positive")
     if args.clearance_weight < 0 or args.heading_weight < 0:
         parser.error("objective weights must be nonnegative")
     vehicle = VehicleConfig(braking=args.deceleration)
     planner = PlannerConfig(control_delay_s=args.control_delay,
                             candidate_execute_s=args.execute_window,
+                            stationary_hold_s=args.stationary_hold,
                             clearance_weight=args.clearance_weight,
                             heading_weight=args.heading_weight)
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     if args.compare:
         modes = tuple(s.strip() for s in args.compare_modes.split(","))
-        if any(mode not in ("reactive", "predictive", "delay_aware", "braking") for mode in modes):
+        if any(mode not in ("reactive", "predictive", "delay_aware", "braking", "braking_hold") for mode in modes):
             parser.error("invalid --compare-modes")
         records = batch_compare((args.scenario,), seeds=args.seeds, modes=modes,
                                 vehicle=vehicle, planner=planner)
