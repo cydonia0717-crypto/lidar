@@ -87,6 +87,14 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                 "yaw": state.yaw, "speed": state.speed, "mode": mode,
                 "rows": plan.diagnostics,
             }
+        feasible_first = [float(d["target_speed"]) for d in plan.diagnostics
+                          if d.get("status") in ("eligible", "selected")
+                          and d.get("continuation_count", 0) > 0]
+        max_feasible_first = max(feasible_first) if feasible_first else None
+        forward_option_exists = any(v > 0.1 for v in feasible_first)
+        stopped_choice_with_forward_option = (
+            not plan.emergency and plan.command.target_speed < 0.1
+            and forward_option_exists)
         emergency_steps += int(plan.emergency)
         backup_rejections += plan.rejected_by_backup
         unsafe_fallback_steps += int(plan.unsafe_fallback)
@@ -102,6 +110,11 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                       "applied_steer": actuator.active.target_steer,
                       "pending_commands": len(actuator.pending),
                       "backup_rejections": plan.rejected_by_backup,
+                      "feasible_pairs": plan.feasible_count,
+                      "feasible_first_actions": len(feasible_first),
+                      "max_feasible_first_speed": max_feasible_first,
+                      "moving_first_action_feasible": int(forward_option_exists),
+                      "stopped_choice_with_moving_option": int(stopped_choice_with_forward_option),
                       "unsafe_fallback": int(plan.unsafe_fallback),
                       "fallback_strategy": plan.fallback_strategy,
                       "emergency": int(plan.emergency),

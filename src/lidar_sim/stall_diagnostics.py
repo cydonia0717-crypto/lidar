@@ -35,6 +35,12 @@ def stall_windows(trace: list[dict], *, window_s: float = 5.0) -> list[dict]:
             zero_cmd = sum(float(r["command_speed"]) < .1 for r in chunk)
             emergency = sum(bool(r.get("emergency", False)) for r in chunk)
             at_rest = sum(float(r["speed"]) < .1 for r in chunk)
+            moving_exists = sum(bool(r.get("moving_first_action_feasible", 0))
+                                for r in chunk)
+            stop_with_choice = sum(bool(r.get("stopped_choice_with_moving_option", 0))
+                                   for r in chunk)
+            feasible_pairs = [int(r["feasible_pairs"]) for r in chunk
+                              if isinstance(r.get("feasible_pairs"), (float, int))]
             second = [float(r["planned_second_speed"]) for r in chunk
                       if isinstance(r.get("planned_second_speed"), (int, float))]
             first_progress = [float(r["planned_first_progress_m"]) for r in chunk
@@ -50,6 +56,9 @@ def stall_windows(trace: list[dict], *, window_s: float = 5.0) -> list[dict]:
                 "zero_first_command_fraction": round(zero_cmd / len(chunk), 3),
                 "rest_fraction": round(at_rest / len(chunk), 3),
                 "emergency_fraction": round(emergency / len(chunk), 3),
+                "moving_first_action_feasible_fraction": round(moving_exists / len(chunk), 3),
+                "stop_despite_moving_first_action_fraction": round(stop_with_choice / len(chunk), 3),
+                "mean_feasible_pairs": round(mean(feasible_pairs), 3) if feasible_pairs else None,
                 "planned_second_mean_speed_mps": round(mean(second), 4) if second else None,
                 "planned_first_progress_mean_m": round(mean(first_progress), 4) if first_progress else None,
                 "planned_second_progress_mean_m": round(mean(second_progress), 4) if second_progress else None,

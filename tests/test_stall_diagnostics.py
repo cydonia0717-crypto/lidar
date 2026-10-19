@@ -90,3 +90,34 @@ def test_negative_first_stage_weight_rejected():
         choose_action(State(0,0,0,0), World(()), VehicleConfig(),
                       PlannerConfig(first_stage_progress_weight=-1),
                       mode="two_stage_commit")
+
+
+def test_online_trace_reports_feasible_moving_commands_separately():
+    from lidar_sim.experiment import run, RunConfig
+    result = run("empty", mode="two_stage", config=RunConfig(max_time=.3))
+    first = result.trace[0]
+    assert first["feasible_pairs"] > 0
+    assert first["max_feasible_first_speed"] > 0
+    assert first["moving_first_action_feasible"] == 1
+    assert first["stopped_choice_with_moving_option"] == int(
+        first["command_speed"] < .1 and first["moving_first_action_feasible"] == 1)
+    rows = stall_windows(result.trace)
+    assert rows and rows[0]["mean_feasible_pairs"] > 0
+
+
+def test_stall_diagnosis_distinguishes_choice_vs_strict_infeasibility():
+    rows = [
+        {"time": 0, "x": 5., "speed": 0., "command_speed": 0.,
+         "emergency": 0, "feasible_pairs": 4,
+         "moving_first_action_feasible": 1,
+         "stopped_choice_with_moving_option": 1},
+        {"time": .1, "x": 5., "speed": 0., "command_speed": 0.,
+         "emergency": 1, "feasible_pairs": 0,
+         "moving_first_action_feasible": 0,
+         "stopped_choice_with_moving_option": 0},
+    ]
+    window = stall_windows(rows)[0]
+    assert window["moving_first_action_feasible_fraction"] == .5
+    assert window["stop_despite_moving_first_action_fraction"] == .5
+    assert window["mean_feasible_pairs"] == 2
+    assert window["emergency_fraction"] == .5
