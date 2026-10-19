@@ -13,6 +13,7 @@ jobs:
       - run: python -m pip install -e '.[dev]'
       - run: python -m pytest -q
       - run: lidar-sim --scenario crossing --seed 0 --output results --plot
+      - run: lidar-eval --scenarios empty --stresses nominal --modes delay_aware,braking --seeds 1 --max-time 1 --output results/eval-smoke --plot
       - uses: actions/upload-artifact@v4
         with:
           name: crossing-simulation-output

@@ -48,11 +48,14 @@ class Result:
 
 def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive",
         *, vehicle: VehicleConfig | None = None, planner: PlannerConfig | None = None,
-        config: RunConfig | None = None) -> Result:
+        config: RunConfig | None = None,
+        world_override: World | None = None) -> Result:
     vcfg = vehicle or VehicleConfig()
     pcfg = planner or PlannerConfig()
     rcfg = config or RunConfig()
-    world = scenario(scenario_name, seed)
+    # Inject the same immutable world across paired planners; the simulator
+    # never changes the world, so each mode receives identical target truth.
+    world = world_override if world_override is not None else scenario(scenario_name, seed)
     state = State(0.0, 0.0, 0.0, rcfg.start_speed)
     min_clearance = float("inf")
     emergency_steps = stopped_steps = backup_rejections = unsafe_fallback_steps = nominal_no_backup_steps = 0
