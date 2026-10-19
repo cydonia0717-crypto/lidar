@@ -118,7 +118,10 @@ def wilson_95(successes: int, n: int) -> tuple[float, float]:
     scale = 1 + z * z / n
     center = (p + z * z / (2 * n)) / scale
     span = z / scale * math.sqrt(p * (1 - p) / n + z * z / (4 * n * n))
-    return max(0.0, center - span), min(1.0, center + span)
+    # Clamp exact binomial edge cases explicitly. Floating-point rounding
+    # may otherwise return 0.9999999999999999 for all successes.
+    return (0.0 if successes == 0 else max(0.0, center - span),
+            1.0 if successes == n else min(1.0, center + span))
 
 
 def summarize(records: list[dict]) -> list[dict]:
