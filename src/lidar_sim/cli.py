@@ -17,10 +17,13 @@ from .visualize import save_figure, save_backup_figure, save_decision_figure
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Synthetic 2D Ackermann dynamic-obstacle avoidance simulator")
     parser.add_argument("--scenario", choices=("crossing", "two_targets", "empty", "narrow", "late_crossing"), default="crossing")
-    parser.add_argument("--mode", choices=("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage", "two_stage_rectroad"), default="predictive")
+    parser.add_argument("--mode", choices=("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage", "two_stage_rectroad", "two_stage_bodyframe"), default="predictive")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--goal-criterion", choices=("x_gate", "pose_gate"), default="x_gate")
+    parser.add_argument("--goal-lateral-tolerance", type=float, default=.75)
+    parser.add_argument("--goal-heading-tolerance-deg", type=float, default=15.)
     parser.add_argument("--physical-road-footprint",
-                        choices=("disc", "rectangle"), default="disc",
+                        choices=("disc", "rectangle", "rearaxle_rectangle"), default="disc",
                         help="Physical collision ground truth; use rectangle for fair geometry ablations")
     parser.add_argument("--output", default="results")
     parser.add_argument("--plot", action="store_true")
@@ -37,7 +40,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--clearance-weight", type=float, default=0.6)
     parser.add_argument("--heading-weight", type=float, default=0.4)
     parser.add_argument("--compare", action="store_true", help="Run paired scenarios with multiple planners")
-    parser.add_argument("--compare-modes", default="reactive,predictive,delay_aware,braking,braking_hold,two_stage,two_stage_rectroad",
+    parser.add_argument("--compare-modes", default="reactive,predictive,delay_aware,braking,braking_hold,two_stage,two_stage_rectroad,two_stage_bodyframe",
                         help="Comma-separated planner modes for paired comparison")
     parser.add_argument("--seeds", type=int, default=5, help="Number of paired random seeds for --compare")
     args = parser.parse_args(argv)
@@ -52,7 +55,10 @@ def main(argv: list[str] | None = None) -> None:
                             stationary_hold_s=args.stationary_hold,
                             clearance_weight=args.clearance_weight,
                             heading_weight=args.heading_weight)
-    physical = RunConfig(physical_road_footprint=args.physical_road_footprint)
+    physical = RunConfig(physical_road_footprint=args.physical_road_footprint,
+                         goal_criterion=args.goal_criterion,
+                         goal_lateral_tolerance_m=args.goal_lateral_tolerance,
+                         goal_heading_tolerance_deg=args.goal_heading_tolerance_deg)
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     if args.compare:

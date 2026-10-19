@@ -61,7 +61,8 @@ def collision_free(trajectory: list[State], world: World, vehicle: VehicleConfig
             return False
         for obs in world.obstacles:
             ox, oy = obs.position(s.time if predict else trajectory[0].time)
-            dist = math.hypot(s.x - ox, s.y - oy)
+            cx, cy = vehicle.body_center(s)
+            dist = math.hypot(cx - ox, cy - oy)
             if dist < vehicle.collision_radius + obs.radius + world.safety_margin + padding:
                 return False
     return True
@@ -99,6 +100,8 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
     braking: delay_aware plus execute-window/backup-braking tail filter.
     braking_hold: braking plus explicit occupancy check *after* the car stops
                   for stationary_hold_s seconds. Neither mode is formally safe.
+    two_stage_bodyframe: same two-stage search, consistently transform the
+               bicycle rear-axle origin to the centered vehicle footprint.
     two_stage_rectroad: identical actions and checks to two_stage, but use
                the actual centered oriented body rectangle for road clearance.
     two_stage: evaluate a pair of velocity/steer setpoints followed by a
@@ -107,16 +110,20 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
     All modes have the same *actual* actuator delay in closed-loop experiments.
     Future versions will replace the ideal target state with radar tracking.
     """
-    if mode not in ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage", "two_stage_rectroad"):
+    if mode not in ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage", "two_stage_rectroad", "two_stage_bodyframe"):
         raise ValueError(f"unknown planner mode: {mode}")
     start_time = time.perf_counter()
     if delay_line is None:
         delay_line = CommandDelayLine(Command(initial.speed, initial.steer), cfg.control_delay_s)
     if abs(delay_line.delay_s - cfg.control_delay_s) > 1e-8:
         raise ValueError("planner/actuator control delays must agree")
-    if mode in ("two_stage", "two_stage_rectroad"):
+    if mode in ("two_stage", "two_stage_rectroad", "two_stage_bodyframe"):
         from .two_stage import choose_two_stage
-        footprint = "rectangle" if mode == "two_stage_rectroad" else "disc"
+        footprint = {
+            "two_stage": "disc",
+            "two_stage_rectroad": "rectangle",
+            "two_stage_bodyframe": "rearaxle_rectangle",
+        }[mode]
         # Planning footprint is independent from the PHYSICAL truth model.
         # Keep obstacle collision radii, kinematics, margins identical.
         planning_vehicle = replace(vehicle, road_footprint=footprint)

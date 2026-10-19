@@ -32,7 +32,8 @@ def first_violation_kind(path: list[State], world: World,
             return "road"
         for target in world.obstacles:
             ox, oy = target.position(s.time)
-            if math.hypot(s.x - ox, s.y - oy) < (
+            cx, cy = vehicle.body_center(s)
+            if math.hypot(cx - ox, cy - oy) < (
                     vehicle.collision_radius + target.radius
                     + world.safety_margin + padding):
                 return "obstacle"

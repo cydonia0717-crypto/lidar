@@ -22,6 +22,17 @@ class VehicleConfig:
     # The vehicle's actual length/width never change; this selects only
     # the geometric ROAD boundary approximation, not obstacle collision.
     road_footprint: str = "disc"
+    # Assumed rear axle -> geometric center for new body-frame ablation.
+    # This must eventually be calibrated on the real Ackermann chassis.
+    rear_axle_to_body_center_m: float = 0.55
+
+    def body_center(self, state: State) -> tuple[float, float]:
+        if self.road_footprint == "rearaxle_rectangle":
+            if not 0 <= self.rear_axle_to_body_center_m <= self.length / 2:
+                raise ValueError("rear axle/body center offset must lie within the body")
+            return (state.x + self.rear_axle_to_body_center_m * math.cos(state.yaw),
+                    state.y + self.rear_axle_to_body_center_m * math.sin(state.yaw))
+        return state.x, state.y
 
     @property
     def collision_radius(self) -> float:
