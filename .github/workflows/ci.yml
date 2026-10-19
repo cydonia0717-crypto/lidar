@@ -23,6 +23,12 @@ jobs:
       - run: lidar-eval --scenarios two_targets --stresses nominal,weak_brake --modes braking,braking_hold --seeds 3 --max-time 30 --output results/post-stop-ablation --plot --print-episodes
       # Paired two-stage decision benchmark; no synthetic data are fabricated.
       - run: lidar-eval --scenarios two_targets --stresses nominal,weak_brake --modes braking_hold,two_stage --seeds 2 --max-time 30 --output results/two-stage-ablation --plot --print-episodes
+      # Diagnose actual first commands versus planned-but-not-executed second actions.
+      - run: python -m lidar_sim.stall_diagnostics --scenario two_targets --stress nominal --seed 0 --mode two_stage --max-time 30 --output results/stall-original
+      # Historical paired seeds; improvement claims cannot rely on these alone.
+      - run: lidar-eval --scenarios two_targets --stresses nominal,weak_brake --modes two_stage,two_stage_commit --seeds 2 --seed-start 0 --max-time 30 --output results/commit-known --plot --print-episodes
+      # Independent HOLDOUT seeds were not used to choose the design.
+      - run: lidar-eval --scenarios two_targets --stresses nominal,weak_brake --modes two_stage,two_stage_commit --seeds 2 --seed-start 10 --max-time 30 --output results/commit-holdout --plot --print-episodes
       - uses: actions/upload-artifact@v4
         with:
           name: crossing-simulation-output

@@ -31,10 +31,13 @@ def continuation_options(first: Command, car: VehicleConfig) -> tuple[Command, .
 
 
 def choose_two_stage(initial: State, world: World, car: VehicleConfig, cfg,
-                     line: CommandDelayLine) -> Plan:
+                     line: CommandDelayLine, *,
+                     committed_progress: bool = False) -> Plan:
     start = time.perf_counter()
     if cfg.two_stage_second_s <= 0:
         raise ValueError("second-stage window must be positive")
+    if cfg.first_stage_progress_weight < 0:
+        raise ValueError("first-stage progress weight must be nonnegative")
     if cfg.stationary_hold_s < 0:
         raise ValueError("post-stop horizon must be nonnegative")
     padding = cfg.prediction_padding
@@ -92,17 +95,35 @@ def choose_two_stage(initial: State, world: World, car: VehicleConfig, cfg,
                           (second.target_speed - first.target_speed)**2 +
                           cfg.steer_weight *
                           (second.target_steer - first.target_steer)**2)
-                score = costs.total + switch
+                # A standard receding-horizon planner can repeatedly plan
+                # "move later" while actually sending stop NOW. Discounting
+                # imagined second-stage motion is unnecessary: give an extra
+                # reward for progress attainable within the *first* phase.
+                first_progress = max(
+                    0.0, min(world.goal_x, first_path[-1].x)
+                    - min(world.goal_x, prefix[-1].x))
+                second_progress = max(
+                    0.0, min(world.goal_x, second_path[-1].x)
+                    - min(world.goal_x, first_path[-1].x))
+                commitment = (-cfg.first_stage_progress_weight * first_progress
+                              if committed_progress else 0.0)
+                score = costs.total + switch + commitment
                 if score < row["total_cost"]:
                     row.update(costs.as_record())
                     row["cost_action_switch"] = switch
+                    row["cost_first_stage_commitment"] = commitment
+                    row["planned_first_progress_m"] = first_progress
+                    row["planned_second_progress_m"] = second_progress
+                    row["planned_second_speed"] = second.target_speed
+                    row["planned_second_steer"] = second.target_steer
                     row["total_cost"] = score
                     row["second_speed"] = second.target_speed
                     row["second_steer"] = second.target_steer
                     row["status"] = "eligible"
                 if best is None or score < best[0]:
                     full = controlled + brake[1:] + hold[1:]
-                    best = (score, first, second, full, costs, switch)
+                    best = (score, first, second, full, costs, switch,
+                            commitment, first_progress, second_progress)
             if row["continuation_count"] == 0:
                 row["status"] = "backup_rejected"
 
@@ -116,7 +137,7 @@ def choose_two_stage(initial: State, world: World, car: VehicleConfig, cfg,
                     rejected_by_backup=rejects,
                     unsafe_fallback=True, fallback_strategy="emergency_brake",
                     diagnostics=diagnostics)
-    score, first, second, full, costs, switch = best
+    score, first, second, full, costs, switch, commitment, first_progress, second_progress = best
     for row in diagnostics:
         if row["target_speed"] == first.target_speed and row["target_steer"] == first.target_steer:
             row["selected"] = True
@@ -124,6 +145,11 @@ def choose_two_stage(initial: State, world: World, car: VehicleConfig, cfg,
             break
     cost_parts = costs.as_record()
     cost_parts["cost_action_switch"] = switch
+    cost_parts["cost_first_stage_commitment"] = commitment
+    cost_parts["planned_first_progress_m"] = first_progress
+    cost_parts["planned_second_progress_m"] = second_progress
+    cost_parts["planned_second_speed"] = second.target_speed
+    cost_parts["planned_second_steer"] = second.target_steer
     cost_parts["total_cost"] = score
     return Plan(first, full, score, feasible_pairs, attempted_pairs, elapsed,
                 backup_checked=True, rejected_by_backup=rejects,

@@ -141,3 +141,23 @@ lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
 \`\`\`
 
 详见 [第八阶段方法说明](docs/phase8_two_stage.md)。新算法依然是合成二维理想CV目标，**不是雷达实测也不是可证明安全算法**。仿真跑完必须检查成功、碰撞、超时和计算开销；两阶段效果不能预先保证。
+
+
+## 第九阶段：两阶段行动承诺与死锁诊断
+
+保留\`two_stage\`历史版本，新增独立\`two_stage_commit\`模式：不改碰撞/道路/刹车/停驻硬约束及第一、第二段候选集合；只在评分中额外奖励**实际会提交的第一段控制**在0.4秒内能带来的可执行正向进度，检验“第二段计划前进但下一周期永远延迟执行”是否引发死锁。零权重时新旧行为完全一致。
+
+\`\`\`bash
+python -m lidar_sim.stall_diagnostics --scenario two_targets --stress nominal \
+  --seed 0 --mode two_stage --output results/stall-original
+
+lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
+  --modes two_stage,two_stage_commit --seed-start 0 --seeds 2 \
+  --max-time 30 --output results/commit-known --print-episodes --plot
+
+lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
+  --modes two_stage,two_stage_commit --seed-start 10 --seeds 2 \
+  --max-time 30 --output results/commit-holdout --print-episodes --plot
+\`\`\`
+
+详见 [第九阶段假设、实现及留出集实验方案](docs/phase9_first_stage_commitment.md)。仍是合成二维仿真，实验结果必须以实际输出数据为准，禁止将调参设想写成达成的论文指标。
