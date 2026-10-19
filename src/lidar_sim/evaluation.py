@@ -21,7 +21,7 @@ from .model import VehicleConfig
 from .planner import PlannerConfig
 from .world import World, scenario
 
-VALID_MODES = ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage")
+VALID_MODES = ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage", "two_stage_commit")
 VALID_STRESSES = ("nominal", "high_delay", "weak_brake", "fast_targets", "narrow_road")
 VALID_SCENARIOS = ("crossing", "two_targets", "late_crossing", "narrow", "empty")
 
@@ -408,6 +408,8 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--stresses", default="nominal,high_delay,weak_brake,fast_targets,narrow_road")
     parser.add_argument("--modes", default="predictive,delay_aware,braking")
     parser.add_argument("--seeds", type=int, default=5)
+    parser.add_argument("--seed-start", type=int, default=0,
+                        help="First scenario seed; use disjoint seeds for held-out checks")
     parser.add_argument("--max-time", type=float, default=35.0)
     parser.add_argument("--output", default="results/evaluation")
     parser.add_argument("--plot", action="store_true")
@@ -416,7 +418,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--failure-traces-per-group", type=int, default=2,
                         help="Save up to N collision/timeout traces per scenario/stress/mode")
     args = parser.parse_args(argv)
-    if (args.seeds < 1 or not math.isfinite(args.max_time) or args.max_time <= 0
+    if (args.seeds < 1 or args.seed_start < 0 or not math.isfinite(args.max_time) or args.max_time <= 0
             or args.failure_traces_per_group < 0):
         parser.error("seeds/max-time must be positive and trace quota nonnegative")
     try:
@@ -426,7 +428,7 @@ def main(argv: list[str] | None = None) -> None:
     except ValueError as exc:
         parser.error(str(exc))
     specs = [TrialSpec(name, seed, stress) for name in names
-             for stress in stresses for seed in range(args.seeds)]
+             for stress in stresses for seed in range(args.seed_start, args.seed_start + args.seeds)]
     print(f"Running {len(specs)} paired trials x {len(modes)} planner modes = "
           f"{len(specs) * len(modes)} synthetic rollouts", flush=True)
     results = evaluate_cases(specs, modes, max_time=args.max_time,
@@ -435,6 +437,7 @@ def main(argv: list[str] | None = None) -> None:
     files = save_study(results, args.output,
                        inputs={"scenarios": names, "stresses": stresses, "modes": modes,
                                "seeds_per_stratum": args.seeds,
+                               "seed_start": args.seed_start,
                                "max_time_s": args.max_time,
                                "max_failure_traces_per_group": args.failure_traces_per_group},
                        plot=args.plot)

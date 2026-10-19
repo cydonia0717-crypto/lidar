@@ -160,12 +160,15 @@ def save_decision_figure(result: Result, path: str | Path) -> Path:
             f"Total cost = {chosen['total_cost']:.3f}",
         ]
         for key in ("route", "progress", "speed_change", "steering_change",
-                    "heading", "clearance", "action_switch"):
+                    "heading", "clearance", "action_switch", "first_stage_commitment"):
             if "cost_" + key in chosen:
                 explanations.append(f"  {key}: {chosen['cost_' + key]:+.3f}")
         if "second_speed" in chosen:
             explanations.append(
                 f"  second action: speed={chosen['second_speed']:.2f}, steer={chosen['second_steer']:.2f}")
+        if "planned_first_progress_m" in chosen:
+            explanations.append(
+                f"  first-stage progress: {chosen['planned_first_progress_m']:.3f}m")
     else:
         explanations += ["", "No candidate selected (emergency braking request)."]
     info_ax.text(.02, .98, "\n".join(explanations), va="top", ha="left",
