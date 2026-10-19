@@ -6,7 +6,7 @@ import csv
 import json
 from pathlib import Path
 
-from .experiment import batch_compare, run, save_result
+from .experiment import RunConfig, batch_compare, run, save_result
 from .model import Command, State, VehicleConfig
 from .planner import PlannerConfig
 from .safety import CommandDelayLine
@@ -17,8 +17,11 @@ from .visualize import save_figure, save_backup_figure, save_decision_figure
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Synthetic 2D Ackermann dynamic-obstacle avoidance simulator")
     parser.add_argument("--scenario", choices=("crossing", "two_targets", "empty", "narrow", "late_crossing"), default="crossing")
-    parser.add_argument("--mode", choices=("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage"), default="predictive")
+    parser.add_argument("--mode", choices=("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage", "two_stage_rectroad"), default="predictive")
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--physical-road-footprint",
+                        choices=("disc", "rectangle"), default="disc",
+                        help="Physical collision ground truth; use rectangle for fair geometry ablations")
     parser.add_argument("--output", default="results")
     parser.add_argument("--plot", action="store_true")
     parser.add_argument("--decision-figure", action="store_true",
@@ -34,7 +37,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--clearance-weight", type=float, default=0.6)
     parser.add_argument("--heading-weight", type=float, default=0.4)
     parser.add_argument("--compare", action="store_true", help="Run paired scenarios with multiple planners")
-    parser.add_argument("--compare-modes", default="reactive,predictive,delay_aware,braking,braking_hold,two_stage",
+    parser.add_argument("--compare-modes", default="reactive,predictive,delay_aware,braking,braking_hold,two_stage,two_stage_rectroad",
                         help="Comma-separated planner modes for paired comparison")
     parser.add_argument("--seeds", type=int, default=5, help="Number of paired random seeds for --compare")
     args = parser.parse_args(argv)
@@ -49,14 +52,15 @@ def main(argv: list[str] | None = None) -> None:
                             stationary_hold_s=args.stationary_hold,
                             clearance_weight=args.clearance_weight,
                             heading_weight=args.heading_weight)
+    physical = RunConfig(physical_road_footprint=args.physical_road_footprint)
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     if args.compare:
         modes = tuple(s.strip() for s in args.compare_modes.split(","))
-        if any(mode not in ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage") for mode in modes):
+        if any(mode not in ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage", "two_stage_rectroad") for mode in modes):
             parser.error("invalid --compare-modes")
         records = batch_compare((args.scenario,), seeds=args.seeds, modes=modes,
-                                vehicle=vehicle, planner=planner)
+                                vehicle=vehicle, planner=planner, config=physical)
         path = output / f"{args.scenario}_paired_comparison.csv"
         with path.open("w", newline="", encoding="utf-8") as f:
             writer = csv.DictWriter(f, fieldnames=list(records[0]))
@@ -74,7 +78,7 @@ def main(argv: list[str] | None = None) -> None:
                   f"backup_rejections={sum(r['backup_rejections'] for r in subset)}")
         return
     result = run(args.scenario, args.seed, args.mode,
-                 vehicle=vehicle, planner=planner)
+                 vehicle=vehicle, planner=planner, config=physical)
     paths = save_result(result, output)
     print(json.dumps(result.metrics(), indent=2))
     print(f"Wrote metrics and trace: {paths[0]}, {paths[1]}")

@@ -25,6 +25,15 @@ jobs:
       - run: lidar-eval --scenarios two_targets --stresses nominal,weak_brake --modes braking_hold,two_stage --seeds 2 --max-time 30 --output results/two-stage-ablation --plot --print-episodes
       # Diagnose EXACT stage and cause rejecting moving candidates (no planner change).
       - run: python -m lidar_sim.rejection_diagnostics --scenario two_targets --stress nominal --seed 0 --max-time 30 --output results/rejection-forensics
+      - run: python -m lidar_sim.road_footprint_audit --seed 0 --stress nominal --output results/road-footprint-audit
+      # Paired planners share the SAME true oriented-rectangle road-exit model;
+      # disc is only the more conservative planning approximation.
+      - run: lidar-eval --scenarios two_targets --stresses nominal,weak_brake --modes two_stage,two_stage_rectroad --physical-road-footprint rectangle --seeds 2 --seed-start 0 --max-time 30 --output results/road-geometry-known --print-episodes --plot
+      # New seeds, not used in the original deadlock investigation.
+      - run: lidar-eval --scenarios two_targets --stresses nominal,weak_brake --modes two_stage,two_stage_rectroad --physical-road-footprint rectangle --seeds 2 --seed-start 10 --max-time 30 --output results/road-geometry-holdout --print-episodes --plot
+      # New SCENARIO templates and untouched seeds; independent robustness
+      # from the historical two-target failure and seed10/11 evaluation.
+      - run: lidar-eval --scenarios crossing,narrow,late_crossing --stresses nominal --modes two_stage,two_stage_rectroad --physical-road-footprint rectangle --seeds 2 --seed-start 20 --max-time 30 --output results/road-geometry-other-scenarios --plot --print-episodes
       - uses: actions/upload-artifact@v4
         with:
           name: crossing-simulation-output

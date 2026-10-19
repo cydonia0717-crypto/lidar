@@ -21,7 +21,7 @@ from .model import VehicleConfig
 from .planner import PlannerConfig
 from .world import World, scenario
 
-VALID_MODES = ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage")
+VALID_MODES = ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage", "two_stage_rectroad")
 VALID_STRESSES = ("nominal", "high_delay", "weak_brake", "fast_targets", "narrow_road")
 VALID_SCENARIOS = ("crossing", "two_targets", "late_crossing", "narrow", "empty")
 
@@ -78,6 +78,7 @@ def make_trial(spec: TrialSpec) -> Trial:
 def evaluate_cases(specs: Iterable[TrialSpec], modes: tuple[str, ...] =
                    ("predictive", "delay_aware", "braking"), *,
                    max_time: float = 35.0,
+                   physical_road_footprint: str = "disc",
                    failure_trace_dir: str | Path | None = None,
                    failure_traces_per_group: int = 0) -> list[dict]:
     """Return all raw individual rollouts, never aggregate away failures."""
@@ -85,6 +86,8 @@ def evaluate_cases(specs: Iterable[TrialSpec], modes: tuple[str, ...] =
         raise ValueError("choose at least one valid mode")
     if len(set(modes)) != len(modes):
         raise ValueError("duplicate controller modes are not allowed")
+    if physical_road_footprint not in ("disc", "rectangle"):
+        raise ValueError("unknown physical road footprint")
     if not math.isfinite(max_time) or max_time <= 0:
         raise ValueError("max_time must be finite and positive")
     if failure_traces_per_group < 0:
@@ -96,7 +99,8 @@ def evaluate_cases(specs: Iterable[TrialSpec], modes: tuple[str, ...] =
         for mode in modes:
             outcome = run(spec.name, spec.seed, mode,
                           vehicle=trial.vehicle, planner=trial.planner,
-                          config=RunConfig(max_time=max_time),
+                          config=RunConfig(max_time=max_time,
+                                           physical_road_footprint=physical_road_footprint),
                           world_override=trial.world)
             trace_file = ""
             if (failure_trace_dir is not None and failure_traces_per_group > 0
@@ -115,6 +119,7 @@ def evaluate_cases(specs: Iterable[TrialSpec], modes: tuple[str, ...] =
                 "stress": spec.stress, "seed": spec.seed, "mode": mode,
                 "target_speed_scale": trial.target_speed_scale,
                 "road_half_width_m": trial.world.road_half_width,
+                "physical_road_footprint": physical_road_footprint,
                 "control_delay_s": trial.planner.control_delay_s,
                 "braking_mps2": trial.vehicle.braking,
                 **outcome.metrics(),
@@ -286,6 +291,47 @@ def paired_two_stage_effects(records: list[dict]) -> list[dict]:
     return result
 
 
+
+def paired_road_footprint_effects(records: list[dict]) -> list[dict]:
+    """Disc-planner vs actual rotated-body planner under SAME physical truth.
+
+    This deliberately requires identical physical collision rules for both
+    methods; a false improvement obtained by changing ground-truth criteria
+    would be invalid.
+    """
+    groups: dict[str, dict[str, dict]] = {}
+    for r in records:
+        dest = groups.setdefault(r["case_id"], {})
+        if r["mode"] in dest:
+            raise ValueError("duplicate case/mode")
+        dest[r["mode"]] = r
+    result = []
+    for case_id, rows in sorted(groups.items()):
+        if not {"two_stage", "two_stage_rectroad"}.issubset(rows):
+            continue
+        baseline, actual = rows["two_stage"], rows["two_stage_rectroad"]
+        keys = ("scenario", "stress", "seed", "target_speed_scale",
+                "road_half_width_m", "control_delay_s", "braking_mps2",
+                "physical_road_footprint")
+        if any(baseline[k] != actual[k] for k in keys):
+            raise ValueError("unmatched physical road truth or world: " + case_id)
+        if baseline["physical_road_footprint"] != "rectangle":
+            raise ValueError("geometry ablation requires common oriented rectangle physical truth")
+        pair={"case_id": case_id, "scenario": baseline["scenario"],
+              "stress": baseline["stress"], "seed": baseline["seed"],
+              "physical_road_footprint": baseline["physical_road_footprint"]}
+        for key in ("success","collision","road_exit","timeout"):
+            pair["disc_"+key]=bool(baseline[key])
+            pair["rectangle_"+key]=bool(actual[key])
+            pair[key+"_change"]=int(bool(actual[key]))-int(bool(baseline[key]))
+        pair["planning_ms_change"]=actual["mean_planning_ms"]-baseline["mean_planning_ms"]
+        pair["both_success_time_change_s"]=(
+            actual["duration_s"]-baseline["duration_s"]
+            if actual["success"] and baseline["success"] else "")
+        result.append(pair)
+    return result
+
+
 def _write_csv(path: Path, rows: list[dict]) -> None:
     if not rows:
         raise ValueError(f"no rows for {path.name}")
@@ -308,6 +354,7 @@ def save_study(records: list[dict], output: str | Path,
         "paired": folder / "paired_braking_effects.csv",
         "paired_post_stop": folder / "paired_post_stop_effects.csv",
         "paired_two_stage": folder / "paired_two_stage_effects.csv",
+        "paired_road_footprint": folder / "paired_road_footprint_effects.csv",
         "metadata": folder / "metadata.json",
     }
     _write_csv(files["episodes"], records)
@@ -327,6 +374,11 @@ def save_study(records: list[dict], output: str | Path,
         _write_csv(files["paired_two_stage"], stage_pairs)
     else:
         files.pop("paired_two_stage")
+    footprint_pairs = paired_road_footprint_effects(records)
+    if footprint_pairs:
+        _write_csv(files["paired_road_footprint"], footprint_pairs)
+    else:
+        files.pop("paired_road_footprint")
     payload = {
         "source": "synthetic 2D Ackermann world, ideal CV obstacle motion truth",
         "not": "real LiDAR data, Kalman estimates, or a safety guarantee",
@@ -408,6 +460,11 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--stresses", default="nominal,high_delay,weak_brake,fast_targets,narrow_road")
     parser.add_argument("--modes", default="predictive,delay_aware,braking")
     parser.add_argument("--seeds", type=int, default=5)
+    parser.add_argument("--seed-start", type=int, default=0,
+                        help="Disjoint held-out seed window")
+    parser.add_argument("--physical-road-footprint", choices=("disc", "rectangle"),
+                        default="disc",
+                        help="Common physical ground truth for ALL planner modes")
     parser.add_argument("--max-time", type=float, default=35.0)
     parser.add_argument("--output", default="results/evaluation")
     parser.add_argument("--plot", action="store_true")
@@ -416,7 +473,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--failure-traces-per-group", type=int, default=2,
                         help="Save up to N collision/timeout traces per scenario/stress/mode")
     args = parser.parse_args(argv)
-    if (args.seeds < 1 or not math.isfinite(args.max_time) or args.max_time <= 0
+    if (args.seeds < 1 or args.seed_start < 0 or not math.isfinite(args.max_time) or args.max_time <= 0
             or args.failure_traces_per_group < 0):
         parser.error("seeds/max-time must be positive and trace quota nonnegative")
     try:
@@ -426,16 +483,19 @@ def main(argv: list[str] | None = None) -> None:
     except ValueError as exc:
         parser.error(str(exc))
     specs = [TrialSpec(name, seed, stress) for name in names
-             for stress in stresses for seed in range(args.seeds)]
+             for stress in stresses for seed in range(args.seed_start, args.seed_start+args.seeds)]
     print(f"Running {len(specs)} paired trials x {len(modes)} planner modes = "
           f"{len(specs) * len(modes)} synthetic rollouts", flush=True)
     results = evaluate_cases(specs, modes, max_time=args.max_time,
+                             physical_road_footprint=args.physical_road_footprint,
                              failure_trace_dir=Path(args.output) / "failure_traces",
                              failure_traces_per_group=args.failure_traces_per_group)
     files = save_study(results, args.output,
                        inputs={"scenarios": names, "stresses": stresses, "modes": modes,
                                "seeds_per_stratum": args.seeds,
+                               "seed_start": args.seed_start,
                                "max_time_s": args.max_time,
+                               "physical_road_footprint": args.physical_road_footprint,
                                "max_failure_traces_per_group": args.failure_traces_per_group},
                        plot=args.plot)
     for name, path in files.items():

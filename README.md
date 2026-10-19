@@ -153,3 +153,25 @@ python -m lidar_sim.rejection_diagnostics --scenario two_targets \
 \`\`\`
 
 真实运行结果与科学边界详见 [第十阶段归因实验结果](docs/phase10_findings.md)。下一步优先定位造成路界无解的\`y/yaw/steer\`轨迹、车体圆形近似与转向采样分辨率，而非继续添加奖励权重。
+
+
+## 第十一阶段：道路边界的真实有向矩形与保守包围圆消融
+
+第十阶段双目标 \`nominal/seed0\` 30秒超时，已定位为第二阶段道路越界拒绝而非障碍物拒绝。进一步按原1.9m车长、0.85m车宽复现实车体横向占据：静止位置 \`x=14.975m, y=1.964m, yaw=27.536°\`，原包围圆净空约0.045m、相同尺寸有向矩形净空约0.270m（均包含0.2m原安全余量）。
+
+新增 \`two_stage_rectroad\`，仅把规划中的道路边界从固定整车包围圆替换成按实际航向旋转的车辆矩形；障碍物碰撞仍保守使用圆、路界余量和车辆尺寸不变。对照时新旧规划方法统一在**同一矩形道路物理真值**下测量出界与成功，保证公平。
+
+\`\`\`bash
+lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
+ --modes two_stage,two_stage_rectroad --physical-road-footprint rectangle \
+ --seeds 2 --seed-start 0 --max-time 30 --output results/road-geometry-known --plot --print-episodes
+
+lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
+ --modes two_stage,two_stage_rectroad --physical-road-footprint rectangle \
+ --seeds 2 --seed-start 10 --max-time 30 --output results/road-geometry-holdout --plot --print-episodes
+\`\`\`
+
+详细模型与科学边界：[第十一阶段道路几何对照说明](docs/phase11_road_footprint.md)。所有性能收益需要实际跑完对照后确认；请勿将已验证的**几何净空改善**直接等同于已验证的**任务成功率改善**。
+
+
+**已实跑阶段性结论**：[第十一阶段实际结果与其它场景外部验证](docs/phase11_pilot_results.md)：累计14组配对、28次合成闭环仿真，统一矩形物理路界真值：原包围圆规划成功8/14，新矩形规划成功13/14；两方法均碰撞1次，无实际道路越界。新方法明显减少了因边界保守约束造成的超时，但不能证明真实激光雷达/道路条件下的安全或统计显著性。
