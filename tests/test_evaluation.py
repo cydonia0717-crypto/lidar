@@ -192,3 +192,24 @@ def test_pairwise_post_stop_ablation_classifies_timeout_separately(tmp_path):
     assert files["paired_post_stop"].exists()
     with files["paired_post_stop"].open(newline="", encoding="utf-8") as fh:
         assert len(list(csv.DictReader(fh))) == 1
+
+
+def test_risk_ranked_recovery_is_paired_without_hiding_timeout():
+    from lidar_sim.evaluation import paired_recovery_effects
+    config = dict(case_id="two_targets__weak_brake__0", scenario="two_targets",
+                  stress="weak_brake", seed=0, target_speed_scale=1.0,
+                  road_half_width_m=3.25, control_delay_s=.25, braking_mps2=.9)
+    before = dict(config, mode="braking_hold", success=False, collision=False,
+                  road_exit=False, timeout=True, duration_s=30,
+                  unsafe_fallback_steps=115, risk_ranked_fallback_steps=0)
+    after = dict(config, mode="recovery", success=True, collision=False,
+                 road_exit=False, timeout=False, duration_s=23,
+                 unsafe_fallback_steps=8, risk_ranked_fallback_steps=8)
+    row = paired_recovery_effects([before, after])[0]
+    assert row["success_change"] == 1
+    assert row["timeout_change"] == -1
+    assert row["risk_ranked_fallback_steps"] == 8
+    assert row["both_success_time_change_s"] == ""
+    after["control_delay_s"] = .5
+    with pytest.raises(ValueError, match="nonpaired"):
+        paired_recovery_effects([before, after])

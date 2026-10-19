@@ -38,6 +38,7 @@ class Result:
     backup_rejections: int
     unsafe_fallback_steps: int
     nominal_no_backup_steps: int
+    risk_ranked_fallback_steps: int
     control_delay_s: float
     trace: list[dict]
     decision_snapshot: dict | None = None
@@ -58,7 +59,7 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
     world = world_override if world_override is not None else scenario(scenario_name, seed)
     state = State(0.0, 0.0, 0.0, rcfg.start_speed)
     min_clearance = float("inf")
-    emergency_steps = stopped_steps = backup_rejections = unsafe_fallback_steps = nominal_no_backup_steps = 0
+    emergency_steps = stopped_steps = backup_rejections = unsafe_fallback_steps = nominal_no_backup_steps = risk_ranked_fallback_steps = 0
     actuator = CommandDelayLine(Command(rcfg.start_speed, 0.0), pcfg.control_delay_s)
     plan_time = 0.0
     trace = []
@@ -91,6 +92,7 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
         backup_rejections += plan.rejected_by_backup
         unsafe_fallback_steps += int(plan.unsafe_fallback)
         nominal_no_backup_steps += int(plan.fallback_strategy == "nominal_no_backup")
+        risk_ranked_fallback_steps += int(plan.fallback_strategy == "risk_ranked_no_backup")
         stopped_steps += int(state.speed < 0.1)
         plan_time += plan.compute_ms
         trace.append({"time": state.time, "x": state.x, "y": state.y,
@@ -104,6 +106,8 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                       "backup_rejections": plan.rejected_by_backup,
                       "unsafe_fallback": int(plan.unsafe_fallback),
                       "fallback_strategy": plan.fallback_strategy,
+                      "rescue_immediate_feasible_count": plan.rescue_immediate_feasible_count,
+                      "fallback_risk_exposure": plan.fallback_risk_exposure,
                       "emergency": int(plan.emergency),
                       **plan.cost_parts})
         actuator.enqueue(state.time, plan.command)
@@ -124,7 +128,7 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                   emergency_steps, stopped_steps,
                   plan_time / max(1, len(trace) - 1),
                   backup_rejections, unsafe_fallback_steps, nominal_no_backup_steps,
-                  pcfg.control_delay_s, trace, decision_snapshot)
+                  risk_ranked_fallback_steps, pcfg.control_delay_s, trace, decision_snapshot)
 
 
 def save_result(result: Result, directory: str | Path) -> tuple[Path, Path]:
@@ -142,7 +146,8 @@ def save_result(result: Result, directory: str | Path) -> tuple[Path, Path]:
     if result.decision_snapshot:
         snapshot = output / f"{prefix}_decision_candidates.csv"
         with snapshot.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=list(result.decision_snapshot["rows"][0]))
+            fields = list(dict.fromkeys(k for row in result.decision_snapshot["rows"] for k in row))
+            writer = csv.DictWriter(f, fieldnames=fields)
             writer.writeheader()
             writer.writerows(result.decision_snapshot["rows"])
     return metrics, trajectory
