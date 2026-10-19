@@ -19,6 +19,9 @@ class VehicleConfig:
     braking: float = 1.6
     max_steer: float = 0.42
     max_steer_rate: float = 0.75
+    # The vehicle's actual length/width never change; this selects only
+    # the geometric ROAD boundary approximation, not obstacle collision.
+    road_footprint: str = "disc"
 
     @property
     def collision_radius(self) -> float:

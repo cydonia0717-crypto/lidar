@@ -1,7 +1,7 @@
 """Closed-loop simulation, reproducible logging and metrics."""
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 import csv
 import json
 import math
@@ -19,6 +19,7 @@ class RunConfig:
     max_time: float = 35.0
     start_speed: float = 1.5
     goal_tolerance: float = 0.6
+    physical_road_footprint: str = "disc"
 
 
 @dataclass
@@ -53,6 +54,9 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
     vcfg = vehicle or VehicleConfig()
     pcfg = planner or PlannerConfig()
     rcfg = config or RunConfig()
+    if rcfg.physical_road_footprint not in ("disc", "rectangle"):
+        raise ValueError("unknown physical road footprint")
+    physical_vehicle = replace(vcfg, road_footprint=rcfg.physical_road_footprint)
     # Inject the same immutable world across paired planners; the simulator
     # never changes the world, so each mode receives identical target truth.
     world = world_override if world_override is not None else scenario(scenario_name, seed)
@@ -66,7 +70,7 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
     collision = road_exit = success = False
     steps = math.ceil(rcfg.max_time / rcfg.dt)
     for i in range(steps + 1):
-        physical_road = world.road_clearance(state, vcfg)
+        physical_road = world.road_clearance(state, physical_vehicle)
         physical_obstacle = world.obstacle_clearance(state, vcfg)
         min_clearance = min(min_clearance, physical_road, physical_obstacle)
         collision = collision or physical_obstacle < 0
@@ -122,7 +126,7 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
         substeps = actuator.advance_path(state, state.time + rcfg.dt, vcfg,
                                          min(pcfg.safety_dt, rcfg.dt))
         for substep in substeps[1:]:
-            physical_road = world.road_clearance(substep, vcfg)
+            physical_road = world.road_clearance(substep, physical_vehicle)
             physical_obstacle = world.obstacle_clearance(substep, vcfg)
             min_clearance = min(min_clearance, physical_road, physical_obstacle)
             state = substep
@@ -164,7 +168,8 @@ def save_result(result: Result, directory: str | Path) -> tuple[Path, Path]:
 def batch_compare(scenario_names: tuple[str, ...], seeds: int = 5,
                   modes: tuple[str, ...] = ("reactive", "predictive"),
                   *, vehicle: VehicleConfig | None = None,
-                  planner: PlannerConfig | None = None) -> list[dict]:
+                  planner: PlannerConfig | None = None,
+                  config: RunConfig | None = None) -> list[dict]:
     if seeds < 1:
         raise ValueError("seeds must be positive")
     records = []
@@ -172,5 +177,6 @@ def batch_compare(scenario_names: tuple[str, ...], seeds: int = 5,
         for seed in range(seeds):
             for mode in modes:
                 records.append(run(name, seed, mode,
-                                   vehicle=vehicle, planner=planner).metrics())
+                                   vehicle=vehicle, planner=planner,
+                                   config=config).metrics())
     return records
