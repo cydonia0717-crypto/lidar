@@ -141,3 +141,15 @@ lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
 \`\`\`
 
 详见 [第八阶段方法说明](docs/phase8_two_stage.md)。新算法依然是合成二维理想CV目标，**不是雷达实测也不是可证明安全算法**。仿真跑完必须检查成功、碰撞、超时和计算开销；两阶段效果不能预先保证。
+
+
+## 第十阶段：双目标死锁的硬约束阶段归因
+
+本阶段只增加逐阶段碰撞/越界拒绝日志，不修改\`two_stage\`规划选择。实际合成仿真 \`two_targets/nominal/seed0\` 已核实：20–30秒每周期平均只剩**5组可行两阶段停车类序列**、前进候选为0；第二阶段道路越界在20–25秒累计**5,200次候选拒绝**，同期动态目标/物理制动/停后占据拒绝均为0。注意累计拒绝事件不是车体碰撞次数，也没有证明真实物理车辆完全无路可走。
+
+\`\`\`bash
+python -m lidar_sim.rejection_diagnostics --scenario two_targets \
+  --stress nominal --seed 0 --max-time 30 --output results/rejection-forensics
+\`\`\`
+
+真实运行结果与科学边界详见 [第十阶段归因实验结果](docs/phase10_findings.md)。下一步优先定位造成路界无解的\`y/yaw/steer\`轨迹、车体圆形近似与转向采样分辨率，而非继续添加奖励权重。
