@@ -21,7 +21,7 @@ from .model import VehicleConfig
 from .planner import PlannerConfig
 from .world import World, scenario
 
-VALID_MODES = ("reactive", "predictive", "delay_aware", "braking", "braking_hold")
+VALID_MODES = ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "terminal_margin")
 VALID_STRESSES = ("nominal", "high_delay", "weak_brake", "fast_targets", "narrow_road")
 VALID_SCENARIOS = ("crossing", "two_targets", "late_crossing", "narrow", "empty")
 
@@ -252,6 +252,37 @@ def paired_post_stop_effects(records: list[dict]) -> list[dict]:
     return pairs
 
 
+
+def paired_terminal_margin_effects(records: list[dict]) -> list[dict]:
+    """Compare the soft terminal-clearance choice to identical strict hold baseline."""
+    groups: dict[str, dict[str, dict]] = {}
+    for item in records:
+        slot = groups.setdefault(item["case_id"], {})
+        if item["mode"] in slot:
+            raise ValueError("duplicate case/mode")
+        slot[item["mode"]] = item
+    out = []
+    for case_id, methods in sorted(groups.items()):
+        if not {"braking_hold", "terminal_margin"}.issubset(methods):
+            continue
+        old, new = methods["braking_hold"], methods["terminal_margin"]
+        for key in ("scenario", "stress", "seed", "target_speed_scale",
+                    "road_half_width_m", "control_delay_s", "braking_mps2"):
+            if old[key] != new[key]:
+                raise ValueError(f"nonpaired scenario/physics {case_id}")
+        result = {"case_id": case_id, "scenario": old["scenario"],
+                  "stress": old["stress"], "seed": old["seed"]}
+        for key in ("success", "collision", "timeout", "road_exit"):
+            result["hold_"+key] = bool(old[key])
+            result["margin_"+key] = bool(new[key])
+            result[key+"_change"] = int(bool(new[key])) - int(bool(old[key]))
+        result["both_success_time_change_s"] = (
+            new["duration_s"]-old["duration_s"]
+            if new["success"] and old["success"] else "")
+        out.append(result)
+    return out
+
+
 def _write_csv(path: Path, rows: list[dict]) -> None:
     if not rows:
         raise ValueError(f"no rows for {path.name}")
@@ -273,6 +304,7 @@ def save_study(records: list[dict], output: str | Path,
         "summary": folder / "summary_by_scenario_stress_mode.csv",
         "paired": folder / "paired_braking_effects.csv",
         "paired_post_stop": folder / "paired_post_stop_effects.csv",
+        "paired_terminal_margin": folder / "paired_terminal_margin_effects.csv",
         "metadata": folder / "metadata.json",
     }
     _write_csv(files["episodes"], records)
@@ -287,6 +319,11 @@ def save_study(records: list[dict], output: str | Path,
         _write_csv(files["paired_post_stop"], hold_pairs)
     else:
         files.pop("paired_post_stop")
+    margin_pairs = paired_terminal_margin_effects(records)
+    if margin_pairs:
+        _write_csv(files["paired_terminal_margin"], margin_pairs)
+    else:
+        files.pop("paired_terminal_margin")
     payload = {
         "source": "synthetic 2D Ackermann world, ideal CV obstacle motion truth",
         "not": "real LiDAR data, Kalman estimates, or a safety guarantee",
