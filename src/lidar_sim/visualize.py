@@ -86,3 +86,90 @@ def save_backup_figure(initial, command, line, world, vehicle, planner, path):
     fig.savefig(output, dpi=160)
     plt.close(fig)
     return output
+
+
+def save_decision_figure(result: Result, path: str | Path) -> Path:
+    """Plot the 25 candidate decisions and the selected weighted cost terms.
+
+    This uses the exact decisions recorded by the online planner; no invented
+    trajectories, scores, or simulation outcomes.
+    """
+    if not result.decision_snapshot:
+        raise ValueError("this simulation has no recorded decision snapshot")
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
+
+    snapshot = result.decision_snapshot
+    records = snapshot["rows"]
+    fig, (ax, info_ax) = plt.subplots(
+        1, 2, figsize=(13, 5.8), width_ratios=(1.35, 1.0),
+        layout="constrained")
+    palette = {
+        "eligible": "#399f72",
+        "selected": "#164f9c",
+        "nominal_rejected": "#d35d51",
+        "backup_rejected": "#df9d35",
+        "unsafe_fallback": "#97539b",
+    }
+    for record in records:
+        color = palette[record["status"]]
+        ax.scatter(record["target_steer"], record["target_speed"], s=440,
+                   color=color, edgecolor="white", linewidth=1.3, zorder=2)
+        if record["selected"]:
+            ax.scatter(record["target_steer"], record["target_speed"],
+                       s=790, facecolors="none", edgecolors="#202c3c",
+                       linewidth=2.1, zorder=3)
+        ax.text(record["target_steer"], record["target_speed"],
+                f'{record["total_cost"]:.1f}', ha="center", va="center",
+                fontsize=8, color="white", weight="bold", zorder=4)
+    ax.set(xlabel="Candidate front steering angle (rad)",
+           ylabel="Candidate target speed (m/s)",
+           title=f"Decisions at t={snapshot['time']:.1f}s | {result.scenario} | {result.mode}")
+    ax.grid(alpha=.15, zorder=0)
+    ax.set_axisbelow(True)
+    ax.set_xticks(sorted({r["target_steer"] for r in records}))
+    ax.set_yticks(sorted({r["target_speed"] for r in records}))
+    ax.legend(handles=[Line2D([0], [0], marker='o', color='none',
+              markerfacecolor=c, markeredgecolor="white", markersize=10, label=k)
+              for k,c in palette.items() if any(r["status"]==k for r in records)],
+              loc="upper right", bbox_to_anchor=(1.0,-.12), ncol=2, fontsize=8)
+    chosen = next((r for r in records if r["selected"]), None)
+    info_ax.axis("off")
+    explanations = [
+        f"Source: synthetic simulation, seed={result.seed}",
+        f"Ego state: x={snapshot['x']:.2f}m, y={snapshot['y']:.2f}m, "
+        f"speed={snapshot['speed']:.2f}m/s",
+        "",
+        "Each circle = one target speed / steering pair.",
+        "Red: rejected by nominal hard constraints",
+        "Orange: rejected by backup braking filter",
+        "Green: passes hard constraints",
+        "Blue: minimum-cost selected action",
+        "Purple: explicit unverified fallback",
+        "",
+        "Numbers inside circles: total weighted cost (lower is better).",
+        "Hard-rejected actions cannot be rescued by a low cost.",
+    ]
+    if chosen:
+        explanations += [
+            "",
+            f"SELECTED: v={chosen['target_speed']:.2f} m/s, "
+            f"steer={chosen['target_steer']:.2f} rad",
+            f"Total cost = {chosen['total_cost']:.3f}",
+        ]
+        for key in ("route", "progress", "speed_change", "steering_change",
+                    "heading", "clearance"):
+            explanations.append(f"  {key}: {chosen['cost_' + key]:+.3f}")
+    else:
+        explanations += ["", "No candidate selected (emergency braking request)."]
+    info_ax.text(.02, .98, "\n".join(explanations), va="top", ha="left",
+                 fontsize=10, family="monospace", linespacing=1.5,
+                 transform=info_ax.transAxes)
+    fig.suptitle("Explainable Candidate Decision (calculated values)", fontsize=15, weight="bold")
+    out = Path(path)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(out, dpi=170)
+    plt.close(fig)
+    return out

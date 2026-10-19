@@ -11,7 +11,7 @@ from .model import Command, State, VehicleConfig
 from .planner import PlannerConfig
 from .safety import CommandDelayLine
 from .world import scenario
-from .visualize import save_figure, save_backup_figure
+from .visualize import save_figure, save_backup_figure, save_decision_figure
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -21,11 +21,15 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--output", default="results")
     parser.add_argument("--plot", action="store_true")
+    parser.add_argument("--decision-figure", action="store_true",
+                        help="Plot recorded candidate scoring and rejection decisions")
     parser.add_argument("--backup-figure", action="store_true",
                         help="Render the three motion phases for one hypothetical command")
     parser.add_argument("--control-delay", type=float, default=0.25)
     parser.add_argument("--deceleration", type=float, default=1.6)
     parser.add_argument("--execute-window", type=float, default=0.40)
+    parser.add_argument("--clearance-weight", type=float, default=0.6)
+    parser.add_argument("--heading-weight", type=float, default=0.4)
     parser.add_argument("--compare", action="store_true", help="Run paired scenarios with multiple planners")
     parser.add_argument("--compare-modes", default="reactive,predictive,delay_aware,braking",
                         help="Comma-separated planner modes for paired comparison")
@@ -33,9 +37,13 @@ def main(argv: list[str] | None = None) -> None:
     args = parser.parse_args(argv)
     if args.control_delay < 0 or args.deceleration <= 0 or args.execute_window <= 0:
         parser.error("delay must be nonnegative, deceleration and execute-window must be positive")
+    if args.clearance_weight < 0 or args.heading_weight < 0:
+        parser.error("objective weights must be nonnegative")
     vehicle = VehicleConfig(braking=args.deceleration)
     planner = PlannerConfig(control_delay_s=args.control_delay,
-                            candidate_execute_s=args.execute_window)
+                            candidate_execute_s=args.execute_window,
+                            clearance_weight=args.clearance_weight,
+                            heading_weight=args.heading_weight)
     output = Path(args.output)
     output.mkdir(parents=True, exist_ok=True)
     if args.compare:
@@ -68,6 +76,13 @@ def main(argv: list[str] | None = None) -> None:
     if args.plot:
         fig = save_figure(result, output / f"{args.scenario}_{args.mode}_{args.seed}.png")
         print(f"Wrote figure: {fig}")
+    if args.decision_figure:
+        if result.decision_snapshot:
+            fig = save_decision_figure(result,
+                    output / f"{args.scenario}_{args.mode}_{args.seed}_decision.png")
+            print(f"Wrote decision explanation: {fig}")
+        else:
+            print("No decision snapshot could be recorded in this run.")
     if args.backup_figure:
         initial = State(0.0, 0.0, 0.0, 1.5)
         line = CommandDelayLine(Command(initial.speed, initial.steer), planner.control_delay_s)
