@@ -31,20 +31,23 @@ class World:
     def road_clearance(self, state: State, car: VehicleConfig) -> float:
         if car.road_footprint == "disc":
             half_extent = car.collision_radius
-        elif car.road_footprint == "rectangle":
+        elif car.road_footprint in ("rectangle", "rearaxle_rectangle"):
             # Exact y-axis projection of a centered, rotated 1.9m x .85m
             # rectangle. Keep the very SAME safety_margin as the disc mode.
             half_extent = (abs(car.length * math.sin(state.yaw)) +
                            abs(car.width * math.cos(state.yaw))) / 2
         else:
             raise ValueError("unknown road footprint model: " + car.road_footprint)
-        return self.road_half_width - abs(state.y) - half_extent
+        _, center_y = car.body_center(state)
+        return self.road_half_width - abs(center_y) - half_extent
 
     def obstacle_clearance(self, state: State, car: VehicleConfig, *, time: float | None = None) -> float:
         t = state.time if time is None else time
         if not self.obstacles:
             return float("inf")
-        return min(math.hypot(state.x - obs.position(t)[0], state.y - obs.position(t)[1])
+        center_x, center_y = car.body_center(state)
+        return min(math.hypot(center_x - obs.position(t)[0],
+                              center_y - obs.position(t)[1])
                    - car.collision_radius - obs.radius for obs in self.obstacles)
 
     def physical_clearance(self, state: State, car: VehicleConfig) -> float:

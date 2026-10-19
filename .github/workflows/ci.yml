@@ -34,6 +34,10 @@ jobs:
       # New SCENARIO templates and untouched seeds; independent robustness
       # from the historical two-target failure and seed10/11 evaluation.
       - run: lidar-eval --scenarios crossing,narrow,late_crossing --stresses nominal --modes two_stage,two_stage_rectroad --physical-road-footprint rectangle --seeds 2 --seed-start 20 --max-time 30 --output results/road-geometry-other-scenarios --plot --print-episodes
+      # Phase 12: identical rear-axle PHYSICAL truth and strict pose/heading finish.
+      - run: lidar-eval --scenarios two_targets --stresses nominal,weak_brake --modes two_stage_rectroad,two_stage_bodyframe --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --goal-lateral-tolerance 0.75 --goal-heading-tolerance-deg 15 --seeds 2 --seed-start 0 --max-time 30 --output results/bodyframe-known --plot --print-episodes
+      # Held-out seeds; no changing the threshold based on these results.
+      - run: lidar-eval --scenarios crossing,narrow --stresses nominal --modes two_stage_rectroad,two_stage_bodyframe --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --goal-lateral-tolerance 0.75 --goal-heading-tolerance-deg 15 --seeds 2 --seed-start 30 --max-time 30 --output results/bodyframe-other-scenarios --plot --print-episodes
       - uses: actions/upload-artifact@v4
         with:
           name: crossing-simulation-output

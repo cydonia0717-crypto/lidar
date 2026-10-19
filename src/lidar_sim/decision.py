@@ -38,8 +38,12 @@ def trajectory_cost_breakdown(path: list[State], command: Command, start: State,
     if cfg.clearance_target_m <= 0 or cfg.clearance_weight < 0 or cfg.heading_weight < 0:
         raise ValueError("clearance target and objective weights must be valid")
 
-    route = cfg.route_weight * sum(s.y * s.y for s in path) / len(path)
-    progress = -cfg.progress_weight * max(0.0, min(world.goal_x, path[-1].x) - start.x)
+    # A vehicle referenced at the rear axle must be guided to the goal by
+    # its actual BODY center, consistently with road/obstacle and pose gate.
+    route = cfg.route_weight * sum(vehicle.body_center(s)[1] ** 2 for s in path) / len(path)
+    progress = -cfg.progress_weight * max(
+        0.0, min(world.goal_x, vehicle.body_center(path[-1])[0])
+        - vehicle.body_center(start)[0])
     speed_change = cfg.speed_change_weight * (command.target_speed - start.speed) ** 2
     steering_change = cfg.steer_weight * (command.target_steer - start.steer) ** 2
     heading = cfg.heading_weight * sum(s.yaw ** 2 for s in path) / len(path)
@@ -53,7 +57,8 @@ def trajectory_cost_breakdown(path: list[State], command: Command, start: State,
         free = world.road_clearance(s, vehicle) - world.safety_margin
         for obs in world.obstacles:
             ox, oy = obs.position(s.time if predict else fixed_time)
-            dist = (math.hypot(s.x - ox, s.y - oy) - vehicle.collision_radius -
+            cx, cy = vehicle.body_center(s)
+            dist = (math.hypot(cx - ox, cy - oy) - vehicle.collision_radius -
                     obs.radius - world.safety_margin - padding)
             free = min(free, dist)
         proximity += max(0.0, cfg.clearance_target_m - free) ** 2

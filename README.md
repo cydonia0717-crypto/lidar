@@ -175,3 +175,21 @@ lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
 
 
 **已实跑阶段性结论**：[第十一阶段实际结果与其它场景外部验证](docs/phase11_pilot_results.md)：累计14组配对、28次合成闭环仿真，统一矩形物理路界真值：原包围圆规划成功8/14，新矩形规划成功13/14；两方法均碰撞1次，无实际道路越界。新方法明显减少了因边界保守约束造成的超时，但不能证明真实激光雷达/道路条件下的安全或统计显著性。
+
+
+## 第十二阶段：后轴参考点与真实终点完成口径
+
+上一阶段仅使用\`state.x >= goal_x - 0.6\`就记为成功，且有向矩形以自行车运动学状态点为中心。该状态的运动学实际上更适合按后轴中心解释，因此新建\`two_stage_bodyframe\`：在相同物理后轴参考下，后轴中心沿车头方向偏移假设的0.55m后得到车体中心，统一用于道路边界、目标距离和路线代价。0.55m是未经实车标定的工程假设。
+
+独立的\`pose_gate\`终点口径要求车身中心越过x方向目标截面，横向偏差≤0.75m、航向偏差≤15°。其意义是“沿道路正确方向通过终点”，不是停车完成（无需零速度）。原\`x_gate\`和旧规划模式保持，不能拿此前旧判据的13/14与新的pose_gate成功次数直接混同。
+
+\`\`\`bash
+lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
+ --modes two_stage_rectroad,two_stage_bodyframe \
+ --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate \
+ --goal-lateral-tolerance 0.75 --goal-heading-tolerance-deg 15 \
+ --seeds 2 --seed-start 0 --max-time 30 \
+ --output results/bodyframe-known --print-episodes --plot
+\`\`\`
+
+详见 [第十二阶段：后轴车体中心和目标判据](docs/phase12_frame_goal.md)。本阶段仍是合成二维理想CV运动目标仿真。

@@ -11,6 +11,7 @@ from .model import Command, State, VehicleConfig
 from .planner import Plan, PlannerConfig, choose_action
 from .world import World, scenario
 from .safety import CommandDelayLine
+from .goal import goal_metrics
 
 
 @dataclass(frozen=True)
@@ -20,6 +21,11 @@ class RunConfig:
     start_speed: float = 1.5
     goal_tolerance: float = 0.6
     physical_road_footprint: str = "disc"
+    goal_criterion: str = "x_gate"
+    goal_lateral_tolerance_m: float = 0.75
+    goal_heading_tolerance_deg: float = 15.0
+    # None means drive-through section; set a limit for a docking experiment.
+    goal_speed_limit_mps: float | None = None
 
 
 @dataclass
@@ -42,6 +48,11 @@ class Result:
     control_delay_s: float
     trace: list[dict]
     decision_snapshot: dict | None = None
+    reached_historical_x_line: bool = False
+    reached_pose_gate: bool = False
+    final_body_center_y_m: float = 0.0
+    final_abs_heading_error_deg: float = 0.0
+    goal_criterion: str = "x_gate"
 
     def metrics(self) -> dict:
         return {key: value for key, value in asdict(self).items() if key not in ("trace", "decision_snapshot")}
@@ -54,8 +65,10 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
     vcfg = vehicle or VehicleConfig()
     pcfg = planner or PlannerConfig()
     rcfg = config or RunConfig()
-    if rcfg.physical_road_footprint not in ("disc", "rectangle"):
+    if rcfg.physical_road_footprint not in ("disc", "rectangle", "rearaxle_rectangle"):
         raise ValueError("unknown physical road footprint")
+    if rcfg.goal_criterion not in ("x_gate", "pose_gate"):
+        raise ValueError("unknown goal criterion")
     physical_vehicle = replace(vcfg, road_footprint=rcfg.physical_road_footprint)
     # Inject the same immutable world across paired planners; the simulator
     # never changes the world, so each mode receives identical target truth.
@@ -68,18 +81,38 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
     trace = []
     decision_snapshot = None
     collision = road_exit = success = False
+    reached_historical_x_line = reached_pose_gate = False
+    final_goal = None
     steps = math.ceil(rcfg.max_time / rcfg.dt)
     for i in range(steps + 1):
         physical_road = world.road_clearance(state, physical_vehicle)
-        physical_obstacle = world.obstacle_clearance(state, vcfg)
+        physical_obstacle = world.obstacle_clearance(state, physical_vehicle)
         min_clearance = min(min_clearance, physical_road, physical_obstacle)
         collision = collision or physical_obstacle < 0
         road_exit = road_exit or physical_road < 0
-        success = state.x >= world.goal_x - rcfg.goal_tolerance
+        status = goal_metrics(
+            state, world, physical_vehicle,
+            distance_tolerance_m=rcfg.goal_tolerance,
+            lateral_tolerance_m=rcfg.goal_lateral_tolerance_m,
+            heading_tolerance_deg=rcfg.goal_heading_tolerance_deg,
+            speed_limit_mps=rcfg.goal_speed_limit_mps)
+        reached_historical_x_line |= status["historical_x_line_met"]
+        reached_pose_gate |= status["pose_gate_met"]
+        final_goal = status
+        accepted_goal = (status["historical_x_line_met"]
+                         if rcfg.goal_criterion == "x_gate"
+                         else status["pose_gate_met"])
+        # A physically collided/exited vehicle never counts as a success.
+        success = accepted_goal and not collision and not road_exit
         if success or collision or road_exit or i == steps:
             trace.append({"time": state.time, "x": state.x, "y": state.y,
                           "yaw": state.yaw, "speed": state.speed, "steer": state.steer,
                           "min_clearance": min(physical_road, physical_obstacle),
+                          "body_center_x": status["body_center_x_m"],
+                          "body_center_y": status["body_center_y_m"],
+                          "abs_heading_error_deg": status["abs_heading_error_deg"],
+                          "historical_x_line_met": int(status["historical_x_line_met"]),
+                          "pose_gate_met": int(status["pose_gate_met"]),
                           "command_speed": "", "command_steer": "", "applied_speed": "", "applied_steer": "", "pending_commands": len(actuator.pending), "backup_rejections": "", "unsafe_fallback": "", "fallback_strategy": "", "emergency": ""})
             break
         plan: Plan = choose_action(state, world, vcfg, pcfg, mode=mode, delay_line=actuator)
@@ -106,6 +139,11 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
         trace.append({"time": state.time, "x": state.x, "y": state.y,
                       "yaw": state.yaw, "speed": state.speed, "steer": state.steer,
                       "min_clearance": min(physical_road, physical_obstacle),
+                      "body_center_x": status["body_center_x_m"],
+                      "body_center_y": status["body_center_y_m"],
+                      "abs_heading_error_deg": status["abs_heading_error_deg"],
+                      "historical_x_line_met": int(status["historical_x_line_met"]),
+                      "pose_gate_met": int(status["pose_gate_met"]),
                       "command_speed": plan.command.target_speed,
                       "command_steer": plan.command.target_steer,
                       "applied_speed": actuator.active.target_speed,
@@ -127,7 +165,7 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                                          min(pcfg.safety_dt, rcfg.dt))
         for substep in substeps[1:]:
             physical_road = world.road_clearance(substep, physical_vehicle)
-            physical_obstacle = world.obstacle_clearance(substep, vcfg)
+            physical_obstacle = world.obstacle_clearance(substep, physical_vehicle)
             min_clearance = min(min_clearance, physical_road, physical_obstacle)
             state = substep
             if physical_road < 0 or physical_obstacle < 0:
@@ -140,7 +178,10 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                   emergency_steps, stopped_steps,
                   plan_time / max(1, len(trace) - 1),
                   backup_rejections, unsafe_fallback_steps, nominal_no_backup_steps,
-                  pcfg.control_delay_s, trace, decision_snapshot)
+                  pcfg.control_delay_s, trace, decision_snapshot,
+                  reached_historical_x_line, reached_pose_gate,
+                  final_goal["body_center_y_m"],
+                  final_goal["abs_heading_error_deg"], rcfg.goal_criterion)
 
 
 def save_result(result: Result, directory: str | Path) -> tuple[Path, Path]:
