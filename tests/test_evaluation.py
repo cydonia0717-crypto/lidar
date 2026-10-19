@@ -136,3 +136,34 @@ def test_cli_smoke_creates_outputs(tmp_path):
           "--max-time", ".2", "--output", str(tmp_path)])
     assert (tmp_path / "episodes.csv").exists()
     assert (tmp_path / "summary_by_scenario_stress_mode.csv").exists()
+
+
+def test_failed_episode_trace_is_saved_for_debugging(tmp_path):
+    records = evaluate_cases(
+        [TrialSpec("empty", 0, "nominal"),
+         TrialSpec("empty", 1, "nominal")],
+        ("delay_aware", "braking"), max_time=.2,
+        failure_trace_dir=tmp_path,
+        failure_traces_per_group=1,
+    )
+    # Both controllers time out because 0.2s is far too short to reach goal.
+    # Per-group quota prevents thousands of debug traces in full studies.
+    saved = [r for r in records if r["failure_trace_file"]]
+    assert len(saved) == 2
+    assert all((tmp_path / (r["case_id"] + "__" + r["mode"] + ".csv")).exists()
+               for r in saved)
+    assert all(not r["success"] for r in records)
+    with (tmp_path / "empty__nominal__0__braking.csv").open(
+            newline="", encoding="utf-8") as fh:
+        assert len(list(csv.DictReader(fh))) >= 2
+
+
+def test_csv_writer_handles_optional_diagnostic_columns(tmp_path):
+    from lidar_sim.evaluation import _write_csv
+    file = tmp_path / "mixed.csv"
+    _write_csv(file, [{"time": 0.0, "emergency": 1},
+                      {"time": .1, "cost_route": 2.0}])
+    with file.open(newline="", encoding="utf-8") as fh:
+        rows = list(csv.DictReader(fh))
+    assert rows[1]["cost_route"] == "2.0"
+    assert rows[0]["cost_route"] == ""

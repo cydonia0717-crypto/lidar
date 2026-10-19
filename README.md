@@ -104,3 +104,10 @@ lidar-eval --output results/eval_main --plot
 输出原始回合 `episodes.csv`、分层 `summary_by_scenario_stress_mode.csv`、同场景差分 `paired_braking_effects.csv`、全部实验假设 `metadata.json`、成功/碰撞率对比图 `rates_by_stress.png`。Wilson 95%区间仅是简单描述统计，不能忽视场景之间的相关性或仿真模型误差。尤其不能只凭3~5组种子做论文中的显著结论。
 
 详见 [第四阶段实验设计](docs/phase4_paired_sensitivity.md)。本项目当前仍然**只包含理想CV目标的人工合成数据**，不存在真实雷达实测和安全性形式化保证。
+
+
+### 第四阶段先导实验与失败回合追踪
+
+GitHub Actions 已实际运行 **36次配对合成仿真**。在单人横穿场景，三种模式全部通过；在双目标场景，加入制动筛选的 `braking` 并未比 `delay_aware` 改善成功/碰撞结果。请阅读 [实际先导实验结果与失败诊断计划](docs/phase4_pilot_findings.md)，不要把尚未验证的创新收益写成已经实现。
+
+批量程序现在默认保存每个场景×压力×方法最多2个失败回合的完整 CSV 状态轨迹到 `failure_traces/`，使用 `--failure-traces-per-group 0` 可以关闭。重点是分析失败发生在哪里、当时还有哪些可用动作、何时进入了没有经过安全验证的后备退化状态。
