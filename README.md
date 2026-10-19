@@ -127,3 +127,18 @@ lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
 \`\`\`
 
 实际先导对照详情见 [第五阶段方法及边界](docs/phase5_post_stop_viability.md) 与 [第五阶段初步实验报告](docs/phase5_pilot_results.md)。目前仅属于合成仿真改进。新增静止检查并没有获得全面更好的成功率，可能增加等待时间和保守性。
+
+
+## 第七阶段：安全候选中的停车终端净空偏好（待消融验证）
+
+第六阶段风险排序退化\`recovery\`对双目标场景产生了**负向效果**，不能作为已证明改进。本阶段另起独立分支，不依赖失败的实验代码；在原严格\`braking_hold\`安全候选集合内增加终端停车位置的软净空评价项，避免在已有可行安全动作时主动选择未来净空特别狭窄的停车位置，**不解除硬约束或引入未经验证的风险动作**。
+
+\`\`\`bash
+lidar-sim --scenario two_targets --mode terminal_margin --seed 0 \
+  --terminal-margin-weight 3 --terminal-margin-target 1.2 --plot --decision-figure
+lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
+  --modes braking_hold,terminal_margin --seeds 3 --max-time 30 \
+  --output results/terminal-margin-ablation --print-episodes --plot
+\`\`\`
+
+对应数学定义、严格的论文边界和对照计划详见 [第七阶段](docs/phase7_terminal_margin.md)。新增结果必须以真实运行的合成仿真日志为准，不能预先宣称任何碰撞下降或成功率提高。

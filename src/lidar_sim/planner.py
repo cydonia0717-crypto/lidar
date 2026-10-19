@@ -9,6 +9,7 @@ from .model import Command, State, VehicleConfig, step
 from .world import World
 from .safety import CommandDelayLine, backup_segments, braking_then_hold
 from .decision import trajectory_cost_breakdown
+from .terminal import terminal_stop_margin
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,8 @@ class PlannerConfig:
     candidate_execute_s: float = 0.40
     safety_dt: float = 0.05
     stationary_hold_s: float = 6.0
+    terminal_margin_target_m: float = 1.2
+    terminal_margin_weight: float = 3.0
 
 
 @dataclass
@@ -97,11 +100,13 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
     braking: delay_aware plus execute-window/backup-braking tail filter.
     braking_hold: braking plus explicit occupancy check *after* the car stops
                   for stationary_hold_s seconds. Neither mode is formally safe.
+    terminal_margin: same strict hold constraints; extra SOFT stop-gap preference.
+                     This never overrides hard collision or road constraints.
 
     All modes have the same *actual* actuator delay in closed-loop experiments.
     Future versions will replace the ideal target state with radar tracking.
     """
-    if mode not in ("reactive", "predictive", "delay_aware", "braking", "braking_hold"):
+    if mode not in ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "terminal_margin"):
         raise ValueError(f"unknown planner mode: {mode}")
     start_time = time.perf_counter()
     if delay_line is None:
@@ -109,7 +114,7 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
     if abs(delay_line.delay_s - cfg.control_delay_s) > 1e-8:
         raise ValueError("planner/actuator control delays must agree")
     prefix = None
-    if mode in ("delay_aware", "braking", "braking_hold"):
+    if mode in ("delay_aware", "braking", "braking_hold", "terminal_margin"):
         # Use the *queued* historical commands, not just the most recent one.
         prefix = delay_line.copy().advance_path(
             initial, initial.time + cfg.control_delay_s, vehicle, cfg.safety_dt)
@@ -146,13 +151,13 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
                 continue
             if best_nominal is None or score < best_nominal[0]:
                 best_nominal = (score, command, path, costs)
-            if mode in ("braking", "braking_hold"):
+            if mode in ("braking", "braking_hold", "terminal_margin"):
                 segs = backup_segments(initial, command, delay_line, vehicle,
                                        cfg.candidate_execute_s, cfg.safety_dt)
                 # The original braking baseline only tests through reaching rest.
                 # The new ablation additionally tests occupancy at that same
                 # stopping position over a finite future period.
-                if mode == "braking_hold":
+                if mode in ("braking_hold", "terminal_margin"):
                     future_path = braking_then_hold(
                         segs, cfg.stationary_hold_s, cfg.safety_dt)
                 else:
@@ -162,6 +167,18 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
                     backup_rejected += 1
                     info["status"] = "backup_rejected"
                     continue
+                if mode == "terminal_margin":
+                    # This term is evaluated ONLY after the candidate passes
+                    # the same strict braking_hold check.
+                    margin = terminal_stop_margin(
+                        segs.brake[-1], world, vehicle,
+                        hold_s=cfg.stationary_hold_s, dt=cfg.safety_dt,
+                        padding=padding, desired_m=cfg.terminal_margin_target_m,
+                        weight=cfg.terminal_margin_weight)
+                    score += margin.penalty
+                    info["cost_terminal_margin"] = margin.penalty
+                    info["terminal_min_clearance_m"] = margin.minimum_clearance_m
+                    info["total_cost"] = score
             count += 1
             if best is None or score < best[0]:
                 best = (score, command, path, costs)
@@ -174,8 +191,16 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
                 row["selected"] = True
                 row["status"] = status
                 break
-        return entry[3].as_record()
-    if best is None and mode in ("braking", "braking_hold") and best_nominal is not None:
+        out = entry[3].as_record()
+        if mode == "terminal_margin" and status == "selected":
+            for row in diagnostics:
+                if row["selected"]:
+                    out["cost_terminal_margin"] = row.get("cost_terminal_margin", 0.0)
+                    out["terminal_min_clearance_m"] = row.get("terminal_min_clearance_m")
+                    out["total_cost"] = entry[0]
+                    break
+        return out
+    if best is None and mode in ("braking", "braking_hold", "terminal_margin") and best_nominal is not None:
         # No candidate has a verified backup. Braking can itself be unsafe
         # (e.g. crossing traffic hits a stopped robot). Continue with the
         # lowest-cost nominally clear candidate, explicitly flagged UNSAFE.
@@ -190,11 +215,11 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
         emergency = Command(0.0, initial.steer)
         path = rollout(initial, emergency, vehicle, cfg.horizon, cfg.sample_dt)
         return Plan(emergency, path, math.inf, 0, total, elapsed,
-                    emergency=True, backup_checked=(mode in ("braking", "braking_hold")),
+                    emergency=True, backup_checked=(mode in ("braking", "braking_hold", "terminal_margin")),
                     rejected_by_backup=backup_rejected,
                     unsafe_fallback=True, fallback_strategy="emergency_brake",
                     diagnostics=diagnostics)
     parts = report_selection(best, "selected")
     return Plan(best[1], best[2], best[0], count, total, elapsed,
-                backup_checked=(mode in ("braking", "braking_hold")), rejected_by_backup=backup_rejected,
+                backup_checked=(mode in ("braking", "braking_hold", "terminal_margin")), rejected_by_backup=backup_rejected,
                 cost_parts=parts, diagnostics=diagnostics)
