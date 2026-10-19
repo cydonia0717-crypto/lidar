@@ -21,7 +21,7 @@ from .model import VehicleConfig
 from .planner import PlannerConfig
 from .world import World, scenario
 
-VALID_MODES = ("reactive", "predictive", "delay_aware", "braking", "braking_hold")
+VALID_MODES = ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "recovery")
 VALID_STRESSES = ("nominal", "high_delay", "weak_brake", "fast_targets", "narrow_road")
 VALID_SCENARIOS = ("crossing", "two_targets", "late_crossing", "narrow", "empty")
 
@@ -168,6 +168,7 @@ def summarize(records: list[dict]) -> list[dict]:
             "mean_min_clearance_m": mean(r["min_clearance_m"] for r in rows),
             "mean_stopped_steps": mean(r["stopped_steps"] for r in rows),
             "mean_unsafe_fallback_steps": mean(r["unsafe_fallback_steps"] for r in rows),
+            "mean_risk_ranked_fallback_steps": mean(r.get("risk_ranked_fallback_steps", 0) for r in rows),
             "mean_backup_rejections": mean(r["backup_rejections"] for r in rows),
             "mean_planning_ms": mean(r["mean_planning_ms"] for r in rows),
         })
@@ -252,6 +253,40 @@ def paired_post_stop_effects(records: list[dict]) -> list[dict]:
     return pairs
 
 
+
+def paired_recovery_effects(records: list[dict]) -> list[dict]:
+    """Risk-ranked recovery versus original hold filter in identical worlds."""
+    cases: dict[str, dict[str, dict]] = {}
+    for item in records:
+        lookup = cases.setdefault(item["case_id"], {})
+        if item["mode"] in lookup:
+            raise ValueError("duplicate case/mode result")
+        lookup[item["mode"]] = item
+    out = []
+    for case_id, group in sorted(cases.items()):
+        if not {"braking_hold", "recovery"}.issubset(group):
+            continue
+        old, new = group["braking_hold"], group["recovery"]
+        identical = ("scenario", "seed", "stress", "target_speed_scale",
+                     "road_half_width_m", "control_delay_s", "braking_mps2")
+        if any(old[k] != new[k] for k in identical):
+            raise ValueError(f"nonpaired physics for {case_id}")
+        row = {"case_id": case_id, "scenario": old["scenario"],
+               "stress": old["stress"], "seed": old["seed"]}
+        for metric in ("success", "collision", "road_exit", "timeout"):
+            row["hold_" + metric] = bool(old[metric])
+            row["recovery_" + metric] = bool(new[metric])
+            row[metric + "_change"] = int(bool(new[metric])) - int(bool(old[metric]))
+        row["risk_ranked_fallback_steps"] = new.get("risk_ranked_fallback_steps", 0)
+        row["unsafe_fallback_steps_change"] = (
+            new["unsafe_fallback_steps"] - old["unsafe_fallback_steps"])
+        row["both_success_time_change_s"] = (
+            new["duration_s"] - old["duration_s"]
+            if old["success"] and new["success"] else "")
+        out.append(row)
+    return out
+
+
 def _write_csv(path: Path, rows: list[dict]) -> None:
     if not rows:
         raise ValueError(f"no rows for {path.name}")
@@ -273,6 +308,7 @@ def save_study(records: list[dict], output: str | Path,
         "summary": folder / "summary_by_scenario_stress_mode.csv",
         "paired": folder / "paired_braking_effects.csv",
         "paired_post_stop": folder / "paired_post_stop_effects.csv",
+        "paired_recovery": folder / "paired_recovery_effects.csv",
         "metadata": folder / "metadata.json",
     }
     _write_csv(files["episodes"], records)
@@ -287,6 +323,11 @@ def save_study(records: list[dict], output: str | Path,
         _write_csv(files["paired_post_stop"], hold_pairs)
     else:
         files.pop("paired_post_stop")
+    recovery_pairs = paired_recovery_effects(records)
+    if recovery_pairs:
+        _write_csv(files["paired_recovery"], recovery_pairs)
+    else:
+        files.pop("paired_recovery")
     payload = {
         "source": "synthetic 2D Ackermann world, ideal CV obstacle motion truth",
         "not": "real LiDAR data, Kalman estimates, or a safety guarantee",
@@ -415,7 +456,8 @@ def main(argv: list[str] | None = None) -> None:
                   f"timeout={row['timeout']}, road_exit={row['road_exit']}, "
                   f"duration={row['duration_s']:.2f}s, "
                   f"fallback_steps={row['unsafe_fallback_steps']}, "
-                  f"backup_rejections={row['backup_rejections']}")
+                  f"backup_rejections={row['backup_rejections']}, "
+                  f"risk_ranked_fallback_steps={row.get('risk_ranked_fallback_steps', 0)}")
 
 
 if __name__ == "__main__":

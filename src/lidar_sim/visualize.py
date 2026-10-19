@@ -112,6 +112,7 @@ def save_decision_figure(result: Result, path: str | Path) -> Path:
         "nominal_rejected": "#d35d51",
         "backup_rejected": "#df9d35",
         "unsafe_fallback": "#97539b",
+        "unsafe_risk_ranked_fallback": "#9652c5",
     }
     for record in records:
         color = palette[record["status"]]

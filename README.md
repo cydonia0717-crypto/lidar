@@ -127,3 +127,19 @@ lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
 \`\`\`
 
 实际先导对照详情见 [第五阶段方法及边界](docs/phase5_post_stop_viability.md) 与 [第五阶段初步实验报告](docs/phase5_pilot_results.md)。目前仅属于合成仿真改进。新增静止检查并没有获得全面更好的成功率，可能增加等待时间和保守性。
+
+
+## 第六阶段：风险排序的死锁退化对照
+
+增加 \`recovery\` 模式：在与 \`braking_hold\` 相同的完整延迟、刹车和停后占据约束下，正常选择严格可行的最低代价动作；如果严格可行集为空，只考虑延迟前缀与短期候选执行**仍不碰撞**的动作，并比较未来名义路径与停后备选路径的加权穿透风险积分，选出在当前理想CV仿真假设下风险较小的一项。
+
+它必须输出 \`unsafe_fallback=1\`，绝不能写成有安全保证的动作。若近期开动也已危险，退化为受实际制动能力和延迟限制的刹车请求。旧 \`braking_hold\` 仍完整保留为基线。
+
+\`\`\`bash
+lidar-sim --scenario two_targets --mode recovery --seed 0 --plot --decision-figure
+lidar-eval --scenarios two_targets --stresses nominal,weak_brake \\
+  --modes braking_hold,recovery --seeds 3 --max-time 30 \\
+  --print-episodes --output results/recovery-ablation --plot
+\`\`\`
+
+配对输出除原始\`episodes.csv\`、分层统计及图外，还增加\`paired_recovery_effects.csv\`，逐种子记录成功、碰撞、越界和超时变化。研究动机、计算细节和局限见 [第六阶段实验设计](docs/phase6_risk_ranked_recovery.md)。必须按实际仿真结果判断是否有用，不预设提升。
