@@ -47,6 +47,7 @@ class Plan:
     fallback_strategy: str = "none"
     cost_parts: dict = field(default_factory=dict)
     diagnostics: list[dict] = field(default_factory=list)
+    rejection_counts: dict = field(default_factory=dict)
 
 
 def collision_free(trajectory: list[State], world: World, vehicle: VehicleConfig,
