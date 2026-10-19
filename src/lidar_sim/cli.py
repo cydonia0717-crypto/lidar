@@ -17,7 +17,7 @@ from .visualize import save_figure, save_backup_figure, save_decision_figure
 def main(argv: list[str] | None = None) -> None:
     parser = argparse.ArgumentParser(description="Synthetic 2D Ackermann dynamic-obstacle avoidance simulator")
     parser.add_argument("--scenario", choices=("crossing", "two_targets", "empty", "narrow", "late_crossing"), default="crossing")
-    parser.add_argument("--mode", choices=("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage", "two_stage_rectroad", "two_stage_bodyframe"), default="predictive")
+    parser.add_argument("--mode", choices=("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage", "two_stage_rectroad", "two_stage_bodyframe", "two_stage_viability"), default="predictive")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--goal-criterion", choices=("x_gate", "pose_gate"), default="x_gate")
     parser.add_argument("--goal-lateral-tolerance", type=float, default=.75)
@@ -40,7 +40,7 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--clearance-weight", type=float, default=0.6)
     parser.add_argument("--heading-weight", type=float, default=0.4)
     parser.add_argument("--compare", action="store_true", help="Run paired scenarios with multiple planners")
-    parser.add_argument("--compare-modes", default="reactive,predictive,delay_aware,braking,braking_hold,two_stage,two_stage_rectroad,two_stage_bodyframe",
+    parser.add_argument("--compare-modes", default="reactive,predictive,delay_aware,braking,braking_hold,two_stage,two_stage_rectroad,two_stage_bodyframe,two_stage_viability",
                         help="Comma-separated planner modes for paired comparison")
     parser.add_argument("--seeds", type=int, default=5, help="Number of paired random seeds for --compare")
     args = parser.parse_args(argv)

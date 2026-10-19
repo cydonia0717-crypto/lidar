@@ -1,0 +1,27 @@
+name: Phase15 candidate viability ablation
+on:
+  push:
+    branches:
+      - feat/one-step-viability-probe
+  workflow_dispatch:
+
+jobs:
+  phase15:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pytest -q tests/test_viability.py
+      # Compare the SAME physical rear-axle geometry/target truth/pose goal.
+      # Standard max-time=35s avoids treating seed0's 30.1s arrival as failure.
+      - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 0 --seeds 2 --max-time 35 --output results/phase15-known --plot --print-episodes --all-traces --failure-traces-per-group 2
+      - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 10 --seeds 2 --max-time 35 --output results/phase15-holdout --plot --print-episodes --all-traces --failure-traces-per-group 2
+      - run: lidar-eval --scenarios crossing,narrow --stresses nominal --modes two_stage_bodyframe,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 40 --seeds 1 --max-time 35 --output results/phase15-other --plot --print-episodes --all-traces --failure-traces-per-group 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase15-viability-ablation-output
+          path: results/phase15-*
