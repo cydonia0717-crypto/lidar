@@ -17,6 +17,41 @@ from .world import World
 from .planner import Plan, collision_free, rollout
 
 
+
+
+def first_violation_kind(path: list[State], world: World,
+                         vehicle: VehicleConfig, padding: float) -> str:
+    """Explain only failures of the existing identical discrete hard check.
+
+    Returns the FIRST failing reason using collision_free's exact ordering
+    (time, then road boundary, then dynamic target). It never overrides
+    feasibility; this function is called only after collision_free rejects.
+    """
+    for s in path:
+        if world.road_clearance(s, vehicle) < world.safety_margin:
+            return "road"
+        for target in world.obstacles:
+            ox, oy = target.position(s.time)
+            if math.hypot(s.x - ox, s.y - oy) < (
+                    vehicle.collision_radius + target.radius
+                    + world.safety_margin + padding):
+                return "obstacle"
+    raise ValueError("no violation on trajectory: check caller's padding/model")
+
+
+def blank_rejections() -> dict[str, int]:
+    return {f"reject_{phase}_{cause}": 0
+            for phase in ("prefix", "first", "second", "brake", "hold")
+            for cause in ("road", "obstacle")}
+
+
+def accumulate_rejection(counts: dict[str, int], phase: str,
+                         path: list[State], world: World, car: VehicleConfig,
+                         padding: float) -> None:
+    cause = first_violation_kind(path, world, car, padding)
+    counts[f"reject_{phase}_{cause}"] += 1
+
+
 def continuation_options(first: Command, car: VehicleConfig) -> tuple[Command, ...]:
     """Few physically meaningful second actions; preserve strict bounds."""
     options = (
@@ -45,15 +80,18 @@ def choose_two_stage(initial: State, world: World, car: VehicleConfig, cfg,
     feasible_pairs = 0
     attempted_pairs = 0
     rejects = 0
+    rejection_counts = blank_rejections()
 
     # The committed prefix is identical for all candidate actions and cannot
     # be cancelled. A collision here is not resolved by a better future score.
     if not collision_free(prefix, world, car, predict=True, padding=padding):
+        accumulate_rejection(rejection_counts, "prefix", prefix, world, car, padding)
         cmd = Command(0.0, initial.steer)
         return Plan(cmd, rollout(initial, cmd, car, cfg.horizon, cfg.sample_dt),
                     math.inf, 0, 0, (time.perf_counter()-start)*1000,
                     emergency=True, backup_checked=True, unsafe_fallback=True,
-                    fallback_strategy="unsafe_committed_prefix")
+                    fallback_strategy="unsafe_committed_prefix",
+                    rejection_counts=rejection_counts)
 
     for first_v in cfg.speed_samples:
         for first_delta in cfg.steer_samples:
@@ -65,6 +103,8 @@ def choose_two_stage(initial: State, world: World, car: VehicleConfig, cfg,
             first_path = rollout(prefix[-1], first, car,
                                  cfg.candidate_execute_s, cfg.safety_dt)
             if not collision_free(first_path, world, car, predict=True, padding=padding):
+                accumulate_rejection(rejection_counts, "first", first_path,
+                                     world, car, padding)
                 continue
             for second in continuation_options(first, car):
                 attempted_pairs += 1
@@ -72,15 +112,21 @@ def choose_two_stage(initial: State, world: World, car: VehicleConfig, cfg,
                                       cfg.two_stage_second_s, cfg.safety_dt)
                 if not collision_free(second_path, world, car,
                                       predict=True, padding=padding):
+                    accumulate_rejection(rejection_counts, "second", second_path,
+                                         world, car, padding)
                     continue
                 brake = braking_tail(second_path[-1], car, cfg.safety_dt)
                 if not collision_free(brake, world, car, predict=True, padding=padding):
                     rejects += 1
+                    accumulate_rejection(rejection_counts, "brake", brake,
+                                         world, car, padding)
                     continue
                 hold = stationary_hold(brake[-1], cfg.stationary_hold_s,
                                        cfg.safety_dt)
                 if not collision_free(hold, world, car, predict=True, padding=padding):
                     rejects += 1
+                    accumulate_rejection(rejection_counts, "hold", hold,
+                                         world, car, padding)
                     continue
                 feasible_pairs += 1
                 row["continuation_count"] += 1
@@ -115,7 +161,7 @@ def choose_two_stage(initial: State, world: World, car: VehicleConfig, cfg,
                     emergency=True, backup_checked=True,
                     rejected_by_backup=rejects,
                     unsafe_fallback=True, fallback_strategy="emergency_brake",
-                    diagnostics=diagnostics)
+                    diagnostics=diagnostics, rejection_counts=rejection_counts)
     score, first, second, full, costs, switch = best
     for row in diagnostics:
         if row["target_speed"] == first.target_speed and row["target_steer"] == first.target_steer:
@@ -127,4 +173,5 @@ def choose_two_stage(initial: State, world: World, car: VehicleConfig, cfg,
     cost_parts["total_cost"] = score
     return Plan(first, full, score, feasible_pairs, attempted_pairs, elapsed,
                 backup_checked=True, rejected_by_backup=rejects,
-                cost_parts=cost_parts, diagnostics=diagnostics)
+                cost_parts=cost_parts, diagnostics=diagnostics,
+                rejection_counts=rejection_counts)
