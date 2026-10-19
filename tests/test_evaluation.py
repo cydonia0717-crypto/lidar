@@ -173,7 +173,8 @@ def test_pairwise_post_stop_ablation_classifies_timeout_separately(tmp_path):
     from lidar_sim.evaluation import paired_post_stop_effects
     physical = dict(case_id="two_targets__weak_brake__3", scenario="two_targets",
                     stress="weak_brake", seed=3, target_speed_scale=1.0,
-                    road_half_width_m=3.25, control_delay_s=.25, braking_mps2=.9)
+                    road_half_width_m=3.25, control_delay_s=.25, braking_mps2=.9,
+                    mean_planning_ms=0.0)
     before = dict(physical, mode="braking", success=False, collision=True,
                   timeout=False, road_exit=False, min_clearance_m=-.05,
                   stopped_steps=70, backup_rejections=0,
