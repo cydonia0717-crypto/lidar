@@ -40,9 +40,10 @@ class Result:
     nominal_no_backup_steps: int
     control_delay_s: float
     trace: list[dict]
+    decision_snapshot: dict | None = None
 
     def metrics(self) -> dict:
-        return {key: value for key, value in asdict(self).items() if key != "trace"}
+        return {key: value for key, value in asdict(self).items() if key not in ("trace", "decision_snapshot")}
 
 
 def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive",
@@ -58,6 +59,7 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
     actuator = CommandDelayLine(Command(rcfg.start_speed, 0.0), pcfg.control_delay_s)
     plan_time = 0.0
     trace = []
+    decision_snapshot = None
     collision = road_exit = success = False
     steps = math.ceil(rcfg.max_time / rcfg.dt)
     for i in range(steps + 1):
@@ -74,6 +76,14 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                           "command_speed": "", "command_steer": "", "applied_speed": "", "applied_steer": "", "pending_commands": len(actuator.pending), "backup_rejections": "", "unsafe_fallback": "", "fallback_strategy": "", "emergency": ""})
             break
         plan: Plan = choose_action(state, world, vcfg, pcfg, mode=mode, delay_line=actuator)
+        if decision_snapshot is None and (
+                any(d["status"] != "eligible" for d in plan.diagnostics)
+                or state.x >= world.goal_x * .35):
+            decision_snapshot = {
+                "time": state.time, "x": state.x, "y": state.y,
+                "yaw": state.yaw, "speed": state.speed, "mode": mode,
+                "rows": plan.diagnostics,
+            }
         emergency_steps += int(plan.emergency)
         backup_rejections += plan.rejected_by_backup
         unsafe_fallback_steps += int(plan.unsafe_fallback)
@@ -91,7 +101,8 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                       "backup_rejections": plan.rejected_by_backup,
                       "unsafe_fallback": int(plan.unsafe_fallback),
                       "fallback_strategy": plan.fallback_strategy,
-                      "emergency": int(plan.emergency)})
+                      "emergency": int(plan.emergency),
+                      **plan.cost_parts})
         actuator.enqueue(state.time, plan.command)
         substeps = actuator.advance_path(state, state.time + rcfg.dt, vcfg,
                                          min(pcfg.safety_dt, rcfg.dt))
@@ -110,7 +121,7 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                   emergency_steps, stopped_steps,
                   plan_time / max(1, len(trace) - 1),
                   backup_rejections, unsafe_fallback_steps, nominal_no_backup_steps,
-                  pcfg.control_delay_s, trace)
+                  pcfg.control_delay_s, trace, decision_snapshot)
 
 
 def save_result(result: Result, directory: str | Path) -> tuple[Path, Path]:
@@ -121,9 +132,16 @@ def save_result(result: Result, directory: str | Path) -> tuple[Path, Path]:
     trajectory = output / f"{prefix}_trace.csv"
     metrics.write_text(json.dumps(result.metrics(), ensure_ascii=False, indent=2), encoding="utf-8")
     with trajectory.open("w", newline="", encoding="utf-8") as f:
-        writer = csv.DictWriter(f, fieldnames=list(result.trace[0]))
+        fieldnames = list(dict.fromkeys(key for row in result.trace for key in row))
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
         writer.writeheader()
         writer.writerows(result.trace)
+    if result.decision_snapshot:
+        snapshot = output / f"{prefix}_decision_candidates.csv"
+        with snapshot.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=list(result.decision_snapshot["rows"][0]))
+            writer.writeheader()
+            writer.writerows(result.decision_snapshot["rows"])
     return metrics, trajectory
 
 

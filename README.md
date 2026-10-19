@@ -68,3 +68,20 @@ lidar-sim --scenario crossing --compare --seeds 10 --control-delay .5 --decelera
 模式 `predictive`：未来障碍物预测但忽略控制队列；`delay_aware`：加入控制延迟前缀；`braking`：进一步加入候选执行结束后的完整制动尾迹；`reactive`：冻结目标当前位置。
 
 日志额外输出 `backup_rejections`、`unsafe_fallback_steps`、`nominal_no_backup_steps`：全部候选没有安全后备方案时**不得声称安全保证**，因为在某些移动目标场景中停车本身也会发生碰撞。当前仿真使用理想目标运动真值，尚无雷达观测误差与实车标定。详见 [第二阶段算法与实验说明](docs/phase2_braking_filter.md)。
+
+
+## 第三阶段：可解释的自身运动决策
+
+不再只输出“选中了某条轨迹”：每个控制周期把25组候选目标速度/前轮转角展开，先做道路、动态障碍物和（braking模式）完整后备制动硬约束检查，再比较**路线偏差、沿线前进量、速度变化、转向变化、航向偏差、安全净空**六项加权成本。
+
+所有正常动作的约束状态、总成本和选中标志都能在CSV中审计；闭环 trace 记录被选择动作的各成本分项。可以直接生成组会需要的决策对比图（计算得分，不是效果假想图）：
+
+\`\`\`bash
+lidar-sim --scenario crossing --mode braking --seed 0 --plot --decision-figure
+lidar-sim --scenario crossing --mode braking --seed 0 --clearance-weight 2.0 --decision-figure
+pytest -q
+\`\`\`
+
+新增的文件是 results/ 下 \`*_decision_candidates.csv\` 和 \`*_decision.png\`。不同模式的安全 padding 统一，防止对照时因安全余量不同而误判提升。
+
+**仍未完成的论文部分**：带噪声的目标跟踪/漏检、一般曲线参考路线、目标预测误差校准、闭环独立测试的制动安全收益验证。具体数学公式与科学边界详见 [决策层算法说明](docs/phase3_decision_layer.md)。
