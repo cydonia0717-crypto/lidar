@@ -38,6 +38,10 @@ jobs:
       - run: lidar-eval --scenarios two_targets --stresses nominal,weak_brake --modes two_stage_rectroad,two_stage_bodyframe --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --goal-lateral-tolerance 0.75 --goal-heading-tolerance-deg 15 --seeds 2 --seed-start 0 --max-time 30 --output results/bodyframe-known --plot --print-episodes
       # Held-out seeds; no changing the threshold based on these results.
       - run: lidar-eval --scenarios crossing,narrow --stresses nominal --modes two_stage_rectroad,two_stage_bodyframe --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --goal-lateral-tolerance 0.75 --goal-heading-tolerance-deg 15 --seeds 2 --seed-start 30 --max-time 30 --output results/bodyframe-other-scenarios --plot --print-episodes
+      # Phase 13: complete 3x3 parameter grid using weak-brake failure seeds.
+      - run: python -m lidar_sim.offset_sensitivity --scenarios two_targets --stresses weak_brake --seeds 0,1 --physical-offsets .40,.55,.70 --assumed-offsets .40,.55,.70 --forensic-seeds 0,1 --max-time 30 --output results/offset-grid
+      # Heldout test under FIXED physical truth: only assumed planning offset moves.
+      - run: python -m lidar_sim.offset_sensitivity --scenarios two_targets --stresses weak_brake --seeds 10,11 --physical-offsets .55 --assumed-offsets .40,.55,.70 --forensic-seeds '' --max-time 30 --output results/offset-holdout
       - uses: actions/upload-artifact@v4
         with:
           name: crossing-simulation-output

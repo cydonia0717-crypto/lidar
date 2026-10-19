@@ -82,6 +82,8 @@ def evaluate_cases(specs: Iterable[TrialSpec], modes: tuple[str, ...] =
                    goal_criterion: str = "x_gate",
                    goal_lateral_tolerance_m: float = .75,
                    goal_heading_tolerance_deg: float = 15.,
+                   assumed_body_offset_m: float | None = None,
+                   physical_body_offset_m: float | None = None,
                    failure_trace_dir: str | Path | None = None,
                    failure_traces_per_group: int = 0) -> list[dict]:
     """Return all raw individual rollouts, never aggregate away failures."""
@@ -95,18 +97,26 @@ def evaluate_cases(specs: Iterable[TrialSpec], modes: tuple[str, ...] =
         raise ValueError("invalid goal criterion")
     if not math.isfinite(max_time) or max_time <= 0:
         raise ValueError("max_time must be finite and positive")
+    for offset in (assumed_body_offset_m, physical_body_offset_m):
+        if offset is not None and (not math.isfinite(offset) or not 0 <= offset <= VehicleConfig().length / 2):
+            raise ValueError("invalid rear-axle body offset")
     if failure_traces_per_group < 0:
         raise ValueError("failure trace quota must be nonnegative")
     saved_counts: dict[tuple[str, str, str], int] = {}
     records = []
     for spec in specs:
         trial = make_trial(spec)
+        if assumed_body_offset_m is not None:
+            trial = replace(
+                trial, vehicle=replace(trial.vehicle,
+                    rear_axle_to_body_center_m=assumed_body_offset_m))
         for mode in modes:
             outcome = run(spec.name, spec.seed, mode,
                           vehicle=trial.vehicle, planner=trial.planner,
                           config=RunConfig(
                               max_time=max_time,
                               physical_road_footprint=physical_road_footprint,
+                              physical_body_offset_m=physical_body_offset_m,
                               goal_criterion=goal_criterion,
                               goal_lateral_tolerance_m=goal_lateral_tolerance_m,
                               goal_heading_tolerance_deg=goal_heading_tolerance_deg),
@@ -129,6 +139,10 @@ def evaluate_cases(specs: Iterable[TrialSpec], modes: tuple[str, ...] =
                 "target_speed_scale": trial.target_speed_scale,
                 "road_half_width_m": trial.world.road_half_width,
                 "physical_road_footprint": physical_road_footprint,
+                "physical_body_offset_m": (
+                    trial.vehicle.rear_axle_to_body_center_m
+                    if physical_body_offset_m is None else physical_body_offset_m),
+                "assumed_body_offset_m": trial.vehicle.rear_axle_to_body_center_m,
                 "goal_lateral_tolerance_m": goal_lateral_tolerance_m,
                 "goal_heading_tolerance_deg": goal_heading_tolerance_deg,
                 "control_delay_s": trial.planner.control_delay_s,
