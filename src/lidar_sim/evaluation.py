@@ -77,7 +77,9 @@ def make_trial(spec: TrialSpec) -> Trial:
 
 def evaluate_cases(specs: Iterable[TrialSpec], modes: tuple[str, ...] =
                    ("predictive", "delay_aware", "braking"), *,
-                   max_time: float = 35.0) -> list[dict]:
+                   max_time: float = 35.0,
+                   failure_trace_dir: str | Path | None = None,
+                   failure_traces_per_group: int = 0) -> list[dict]:
     """Return all raw individual rollouts, never aggregate away failures."""
     if not modes or any(mode not in VALID_MODES for mode in modes):
         raise ValueError("choose at least one valid mode")
@@ -85,6 +87,9 @@ def evaluate_cases(specs: Iterable[TrialSpec], modes: tuple[str, ...] =
         raise ValueError("duplicate controller modes are not allowed")
     if not math.isfinite(max_time) or max_time <= 0:
         raise ValueError("max_time must be finite and positive")
+    if failure_traces_per_group < 0:
+        raise ValueError("failure trace quota must be nonnegative")
+    saved_counts: dict[tuple[str, str, str], int] = {}
     records = []
     for spec in specs:
         trial = make_trial(spec)
@@ -93,7 +98,19 @@ def evaluate_cases(specs: Iterable[TrialSpec], modes: tuple[str, ...] =
                           vehicle=trial.vehicle, planner=trial.planner,
                           config=RunConfig(max_time=max_time),
                           world_override=trial.world)
+            trace_file = ""
+            if (failure_trace_dir is not None and failure_traces_per_group > 0
+                    and (outcome.collision or outcome.road_exit or outcome.timeout)):
+                key = (spec.name, spec.stress, mode)
+                if saved_counts.get(key, 0) < failure_traces_per_group:
+                    folder = Path(failure_trace_dir)
+                    folder.mkdir(parents=True, exist_ok=True)
+                    target = folder / f"{spec.case_id}__{mode}.csv"
+                    _write_csv(target, outcome.trace)
+                    trace_file = str(target)
+                    saved_counts[key] = saved_counts.get(key, 0) + 1
             records.append({
+                "failure_trace_file": trace_file,
                 "case_id": spec.case_id, "scenario": spec.name,
                 "stress": spec.stress, "seed": spec.seed, "mode": mode,
                 "target_speed_scale": trial.target_speed_scale,
@@ -303,9 +320,12 @@ def main(argv: list[str] | None = None) -> None:
     parser.add_argument("--max-time", type=float, default=35.0)
     parser.add_argument("--output", default="results/evaluation")
     parser.add_argument("--plot", action="store_true")
+    parser.add_argument("--failure-traces-per-group", type=int, default=2,
+                        help="Save up to N collision/timeout traces per scenario/stress/mode")
     args = parser.parse_args(argv)
-    if args.seeds < 1 or not math.isfinite(args.max_time) or args.max_time <= 0:
-        parser.error("seeds and max-time must be positive")
+    if (args.seeds < 1 or not math.isfinite(args.max_time) or args.max_time <= 0
+            or args.failure_traces_per_group < 0):
+        parser.error("seeds/max-time must be positive and trace quota nonnegative")
     try:
         names = parse_names(args.scenarios, VALID_SCENARIOS, "scenarios")
         stresses = parse_names(args.stresses, VALID_STRESSES, "stresses")
@@ -316,14 +336,18 @@ def main(argv: list[str] | None = None) -> None:
              for stress in stresses for seed in range(args.seeds)]
     print(f"Running {len(specs)} paired trials x {len(modes)} planner modes = "
           f"{len(specs) * len(modes)} synthetic rollouts", flush=True)
-    results = evaluate_cases(specs, modes, max_time=args.max_time)
+    results = evaluate_cases(specs, modes, max_time=args.max_time,
+                             failure_trace_dir=Path(args.output) / "failure_traces",
+                             failure_traces_per_group=args.failure_traces_per_group)
     files = save_study(results, args.output,
                        inputs={"scenarios": names, "stresses": stresses, "modes": modes,
                                "seeds_per_stratum": args.seeds,
-                               "max_time_s": args.max_time},
+                               "max_time_s": args.max_time,
+                               "max_failure_traces_per_group": args.failure_traces_per_group},
                        plot=args.plot)
     for name, path in files.items():
         print(f"{name}: {path}")
+    print("saved_failure_traces:", sum(bool(row["failure_trace_file"]) for row in results))
     for row in summarize(results):
         print(f"{row['scenario']}/{row['stress']}/{row['mode']}: "
               f"success={row['successes']}/{row['n']}, "
