@@ -17,6 +17,8 @@ jobs:
       # Small but real paired research pilot; output contains every episode.
       # These are synthetic scenario results, not field validation.
       - run: lidar-eval --scenarios crossing,two_targets --stresses nominal,weak_brake --modes predictive,delay_aware,braking --seeds 3 --max-time 30 --output results/eval-study --plot
+      # Print exact impact/fallback chronology; keep the source traces as artifacts.
+      - run: python -m lidar_sim.forensics --scenario two_targets --stresses nominal,weak_brake --modes delay_aware,braking --seeds 3 --max-time 30 --output results/forensics
       - uses: actions/upload-artifact@v4
         with:
           name: crossing-simulation-output
