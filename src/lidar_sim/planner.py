@@ -29,6 +29,7 @@ class PlannerConfig:
     candidate_execute_s: float = 0.40
     safety_dt: float = 0.05
     stationary_hold_s: float = 6.0
+    two_stage_second_s: float = 1.0
 
 
 @dataclass
@@ -97,17 +98,22 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
     braking: delay_aware plus execute-window/backup-braking tail filter.
     braking_hold: braking plus explicit occupancy check *after* the car stops
                   for stationary_hold_s seconds. Neither mode is formally safe.
+    two_stage: evaluate a pair of velocity/steer setpoints followed by a
+               physical brake and post-stop hold; execute only the first.
 
     All modes have the same *actual* actuator delay in closed-loop experiments.
     Future versions will replace the ideal target state with radar tracking.
     """
-    if mode not in ("reactive", "predictive", "delay_aware", "braking", "braking_hold"):
+    if mode not in ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage"):
         raise ValueError(f"unknown planner mode: {mode}")
     start_time = time.perf_counter()
     if delay_line is None:
         delay_line = CommandDelayLine(Command(initial.speed, initial.steer), cfg.control_delay_s)
     if abs(delay_line.delay_s - cfg.control_delay_s) > 1e-8:
         raise ValueError("planner/actuator control delays must agree")
+    if mode == "two_stage":
+        from .two_stage import choose_two_stage
+        return choose_two_stage(initial, world, vehicle, cfg, delay_line)
     prefix = None
     if mode in ("delay_aware", "braking", "braking_hold"):
         # Use the *queued* historical commands, not just the most recent one.

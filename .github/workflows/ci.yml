@@ -21,6 +21,8 @@ jobs:
       - run: python -m lidar_sim.forensics --scenario two_targets --stresses nominal,weak_brake --modes delay_aware,braking --seeds 3 --max-time 30 --output results/forensics
       # Paired ablation isolates extra post-stop occupancy constraint.
       - run: lidar-eval --scenarios two_targets --stresses nominal,weak_brake --modes braking,braking_hold --seeds 3 --max-time 30 --output results/post-stop-ablation --plot --print-episodes
+      # Paired two-stage decision benchmark; no synthetic data are fabricated.
+      - run: lidar-eval --scenarios two_targets --stresses nominal,weak_brake --modes braking_hold,two_stage --seeds 2 --max-time 30 --output results/two-stage-ablation --plot --print-episodes
       - uses: actions/upload-artifact@v4
         with:
           name: crossing-simulation-output

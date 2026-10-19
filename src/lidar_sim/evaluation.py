@@ -21,7 +21,7 @@ from .model import VehicleConfig
 from .planner import PlannerConfig
 from .world import World, scenario
 
-VALID_MODES = ("reactive", "predictive", "delay_aware", "braking", "braking_hold")
+VALID_MODES = ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage")
 VALID_STRESSES = ("nominal", "high_delay", "weak_brake", "fast_targets", "narrow_road")
 VALID_SCENARIOS = ("crossing", "two_targets", "late_crossing", "narrow", "empty")
 

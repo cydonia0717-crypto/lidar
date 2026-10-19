@@ -142,7 +142,8 @@ def save_result(result: Result, directory: str | Path) -> tuple[Path, Path]:
     if result.decision_snapshot:
         snapshot = output / f"{prefix}_decision_candidates.csv"
         with snapshot.open("w", newline="", encoding="utf-8") as f:
-            writer = csv.DictWriter(f, fieldnames=list(result.decision_snapshot["rows"][0]))
+            fields = list(dict.fromkeys(key for row in result.decision_snapshot["rows"] for key in row))
+            writer = csv.DictWriter(f, fieldnames=fields)
             writer.writeheader()
             writer.writerows(result.decision_snapshot["rows"])
     return metrics, trajectory
