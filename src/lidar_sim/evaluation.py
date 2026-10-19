@@ -252,6 +252,40 @@ def paired_post_stop_effects(records: list[dict]) -> list[dict]:
     return pairs
 
 
+
+def paired_two_stage_effects(records: list[dict]) -> list[dict]:
+    """Paired decision-structure comparison, including computation overhead."""
+    cases: dict[str, dict[str, dict]] = {}
+    for row in records:
+        dst = cases.setdefault(row["case_id"], {})
+        if row["mode"] in dst:
+            raise ValueError("duplicate case/mode")
+        dst[row["mode"]] = row
+    result = []
+    for case_id, modes in sorted(cases.items()):
+        if not {"braking_hold", "two_stage"}.issubset(modes):
+            continue
+        old, new = modes["braking_hold"], modes["two_stage"]
+        for key in ("scenario", "stress", "seed", "target_speed_scale",
+                    "road_half_width_m", "control_delay_s", "braking_mps2"):
+            if old[key] != new[key]:
+                raise ValueError("nonpaired world/physics " + case_id)
+        values = {"case_id": case_id, "scenario": old["scenario"],
+                  "stress": old["stress"], "seed": old["seed"]}
+        for metric in ("success", "collision", "timeout", "road_exit"):
+            values["hold_" + metric] = bool(old[metric])
+            values["two_stage_" + metric] = bool(new[metric])
+            values[metric + "_change"] = int(bool(new[metric])) - int(bool(old[metric]))
+        values["hold_mean_planning_ms"] = old["mean_planning_ms"]
+        values["two_stage_mean_planning_ms"] = new["mean_planning_ms"]
+        values["planning_ms_change"] = new["mean_planning_ms"] - old["mean_planning_ms"]
+        values["both_success_time_change_s"] = (
+            new["duration_s"] - old["duration_s"]
+            if old["success"] and new["success"] else "")
+        result.append(values)
+    return result
+
+
 def _write_csv(path: Path, rows: list[dict]) -> None:
     if not rows:
         raise ValueError(f"no rows for {path.name}")
@@ -273,6 +307,7 @@ def save_study(records: list[dict], output: str | Path,
         "summary": folder / "summary_by_scenario_stress_mode.csv",
         "paired": folder / "paired_braking_effects.csv",
         "paired_post_stop": folder / "paired_post_stop_effects.csv",
+        "paired_two_stage": folder / "paired_two_stage_effects.csv",
         "metadata": folder / "metadata.json",
     }
     _write_csv(files["episodes"], records)
@@ -287,6 +322,11 @@ def save_study(records: list[dict], output: str | Path,
         _write_csv(files["paired_post_stop"], hold_pairs)
     else:
         files.pop("paired_post_stop")
+    stage_pairs = paired_two_stage_effects(records)
+    if stage_pairs:
+        _write_csv(files["paired_two_stage"], stage_pairs)
+    else:
+        files.pop("paired_two_stage")
     payload = {
         "source": "synthetic 2D Ackermann world, ideal CV obstacle motion truth",
         "not": "real LiDAR data, Kalman estimates, or a safety guarantee",
@@ -407,7 +447,8 @@ def main(argv: list[str] | None = None) -> None:
               f"collision={row['collisions']}/{row['n']}, "
               f"timeout={row['timeouts']}/{row['n']}, "
               f"road_exit={row['road_exits']}/{row['n']}, "
-              f"mean_success_time={row['mean_success_time_s']}")
+              f"mean_success_time={row['mean_success_time_s']}, "
+              f"mean_planning_ms={row['mean_planning_ms']:.3f}")
     if args.print_episodes:
         for row in results:
             print(f"EPISODE {row['case_id']} {row['mode']}: "
