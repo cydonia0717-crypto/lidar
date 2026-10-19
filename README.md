@@ -193,3 +193,6 @@ lidar-eval --scenarios two_targets --stresses nominal,weak_brake \
 \`\`\`
 
 详见 [第十二阶段：后轴车体中心和目标判据](docs/phase12_frame_goal.md)。本阶段仍是合成二维理想CV运动目标仿真。
+
+
+**第十二阶段实际结果已完成**： [统一后轴参考点与严格终点位姿联合判据的实测报告](docs/phase12_pilot_results.md)。在相同rearaxle_rectangle物理真值、0.75m横向阈值、15°航向阈值下，8组配对旧状态点居中规划成功3/8、新后轴车体中心规划成功6/8；旧碰撞5次、新碰撞1次，但新方法弱制动仍出现1次碰撞和1次超时。这与第十一阶段13/14（原坐标约定+旧纵向过线规则）**不可直接横向比较**。
