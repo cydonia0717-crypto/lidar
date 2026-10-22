@@ -62,6 +62,10 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
         "lookahead_change": 0,
         "lookahead_no_viable_shortlist": 0,
         "lookahead_probe_s": cfg.viability_probe_s,
+        "lookahead_parent_ms": baseline.compute_ms,
+        "lookahead_child_calls": 0,
+        "lookahead_child_ms": 0.0,
+        "lookahead_cache_entries": len(feasible_first_cache),
     })
     if baseline.unsafe_fallback or not baseline.feasible_count:
         baseline.cost_parts["lookahead_skipped_unsafe_baseline"] = 1
@@ -77,6 +81,8 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
     )[:cfg.viability_top_k]
     accepted = None
     summary = []
+    child_calls = 0
+    child_ms = 0.0
     for row in eligible:
         command = Command(row["target_speed"], row["target_steer"])
         future, future_line = probe_future(initial, command, car, cfg, line)
@@ -86,7 +92,10 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
         if rejected_during_probe:
             child_feasible = 0
         else:
+            child_started = time.perf_counter()
             child_plan = choose_two_stage(future[-1], world, car, cfg, future_line)
+            child_ms += (time.perf_counter() - child_started) * 1000
+            child_calls += 1
             child_feasible = (child_plan.feasible_count
                               if not child_plan.unsafe_fallback else 0)
         summary.append((command, child_feasible, rejected_during_probe))
@@ -100,6 +109,8 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
 
     baseline.cost_parts["lookahead_unprobed"] = len(eligible) - len(summary)
     baseline.cost_parts["lookahead_early_exit"] = int(accepted is not None and len(summary) < len(eligible))
+    baseline.cost_parts["lookahead_child_calls"] = child_calls
+    baseline.cost_parts["lookahead_child_ms"] = child_ms
     baseline.cost_parts["lookahead_probed"] = len(summary)
     baseline.cost_parts["lookahead_viable"] = sum(bool(count) for _, count, _ in summary)
     baseline.cost_parts["lookahead_probe_path_rejected"] = sum(bad for _, _, bad in summary)
