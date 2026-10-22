@@ -175,7 +175,10 @@ def test_phase16_fast_exit_preserves_first_viable_action_and_records_skips(monke
     assert optimized.command == Command(
         eligible[0]["target_speed"], eligible[0]["target_steer"])
     assert optimized.feasible_count == baseline.feasible_count
-    assert len(calls) == 2  # one parent search and one future search
+    assert len(calls) == 1  # only parent is fully scored; child uses witness
+    assert optimized.cost_parts["lookahead_child_calls"] == 1
+    assert optimized.cost_parts["lookahead_child_witness"] == 1
+    assert optimized.cost_parts["lookahead_child_count_exact"] == 0
 
 
 @pytest.mark.parametrize("obstacles", [
@@ -204,3 +207,29 @@ def test_phase16_cached_trajectory_matches_forced_first(obstacles):
         for key, value in parts.items():
             assert forced.cost_parts[key] == value
     assert baseline.command in cache
+
+
+@pytest.mark.parametrize("state,world", [
+    (State(0, 0, 0, 1.5), World(())),
+    (State(0, 0, 0, 1.5),
+     World((MovingObstacle("crossing", 13, -4.4, 0, .58),))),
+    (State(0, 0, 0, 1.5),
+     World((MovingObstacle("overlap", 0, 0, 0, 0, 1),))),
+    (State(2, .2, .1, 1.5),
+     World((MovingObstacle("near", 5, .5, -.2, 0, .6),))),
+])
+def test_strict_child_witness_agrees_with_exhaustive_two_stage(state, world):
+    """Existence is true iff the original exhaustive planner finds a pair."""
+    from lidar_sim.two_stage import choose_two_stage
+    from lidar_sim.viability_witness import strict_continuation_exists
+
+    car = VehicleConfig(road_footprint="rearaxle_rectangle")
+    cfg = PlannerConfig()
+    line = CommandDelayLine(Command(state.speed, state.steer), cfg.control_delay_s)
+    line.enqueue(state.time - .1, Command(.8, .1))
+    before = line.copy()
+    full = choose_two_stage(state, world, car, cfg, line)
+    witness = strict_continuation_exists(state, world, car, cfg, line)
+    assert witness == bool(full.feasible_count and not full.unsafe_fallback)
+    assert line.active == before.active
+    assert line.pending == before.pending
