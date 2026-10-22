@@ -18,7 +18,10 @@ jobs:
       - run: python -m pytest -q tests/test_viability.py
       - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 0 --seeds 2 --max-time 35 --output results/phase16-known --print-episodes --all-traces
       - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 10 --seeds 2 --max-time 35 --output results/phase16-check --print-episodes --all-traces
+      - run: python -m lidar_sim.phase16_timing results/phase16-known results/phase16-check --output results/phase16-timing.csv
       - uses: actions/upload-artifact@v4
         with:
           name: phase16-fast-exit-results
-          path: results/phase16-*
+          path: |
+            results/phase16-*
+            results/phase16-timing.csv
