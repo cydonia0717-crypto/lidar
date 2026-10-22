@@ -30,6 +30,9 @@ jobs:
       # CI if the previously observed collision or any physical action changes.
       - run: python -m lidar_sim.phase17_replay --root results/phase17-known-paired --scenario two_targets --stress weak_brake --seed 0 --modes two_stage_viability,two_stage_viability_phase15,two_stage_bodyframe --output results/phase17-seed0-replay.csv
 
+      # Identical deterministic compute budgets, not algorithm-specific CPU
+      # wall time: isolate the influence of controller choice vs scheduling.
+      - run: python -m lidar_sim.phase17_eval --scenarios two_targets --stress weak_brake --seed-start 0 --seeds 1 --modes two_stage_bodyframe,two_stage_viability --policies fixed:0,fixed:20,fixed:40,fixed:60,fixed:80,fixed:100,fixed:120,fixed:160 --max-time 35 --output results/phase17-seed0-fixed-sweep
       - uses: actions/upload-artifact@v4
         with:
           name: phase17-latency-feedback-output
@@ -41,3 +44,4 @@ jobs:
             results/phase17-paired.csv
             results/phase17-seed0-replay.csv
             results/phase17-forensics.csv
+            results/phase17-seed0-fixed-sweep/
