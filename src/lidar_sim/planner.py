@@ -124,7 +124,7 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
         delay_line = CommandDelayLine(Command(initial.speed, initial.steer), cfg.control_delay_s)
     if abs(delay_line.delay_s - cfg.control_delay_s) > 1e-8:
         raise ValueError("planner/actuator control delays must agree")
-    if mode in ("two_stage", "two_stage_rectroad", "two_stage_bodyframe", "two_stage_viability"):
+    if mode in ("two_stage", "two_stage_rectroad", "two_stage_bodyframe", "two_stage_viability", "two_stage_viability_fast"):
         from .two_stage import choose_two_stage
         footprint = {
             "two_stage": "disc",
