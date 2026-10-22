@@ -107,3 +107,40 @@ def test_optimization_does_not_undo_existing_parameter_validation():
         with pytest.raises(ValueError,match="probe_s"):
             choose_action(state,World(()),car,replace(cfg,viability_probe_s=invalid),
                           mode="two_stage_viability_fast")
+
+
+
+def test_runtime_audit_fails_on_any_divergence_and_computes_p95(tmp_path):
+    import csv
+    from lidar_sim.phase16_equivalence_audit import paired_audit, percentile
+    folder=tmp_path/"scenario"/"all_traces"
+    folder.mkdir(parents=True)
+    def write(name,rows):
+        with (folder/name).open("w",newline="",encoding="utf8") as f:
+            w=csv.DictWriter(f,fieldnames=list(rows[0]))
+            w.writeheader()
+            w.writerows(rows)
+    original=[
+        {"time":"0.0","x":"0.0","y":"0.0","yaw":"0.0",
+         "speed":"1.0","steer":"0.0","command_speed":"1.8",
+         "planning_compute_ms":"120"},
+        {"time":"0.1","x":"0.1","y":"0.0","yaw":"0.0",
+         "speed":"1.0","steer":"0.0","command_speed":"",
+         "planning_compute_ms":""},
+    ]
+    fast=[dict(original[0],planning_compute_ms="30"),
+          dict(original[1])]
+    slow_name="two_targets__weak_brake__0__two_stage_viability.csv"
+    fast_name="two_targets__weak_brake__0__two_stage_viability_fast.csv"
+    write(slow_name,original)
+    write(fast_name,fast)
+    result=paired_audit((folder.parent,))[0]
+    assert result["all_commands_states_exactly_equal"]
+    assert result["original_deadline_misses"]==1
+    assert result["fast_deadline_misses"]==0
+    assert result["paired_mean_speedup"]==pytest.approx(4)
+    assert percentile([10,20,30,40],.95)==40
+    fast[0]["command_speed"]="0.6"
+    write(fast_name,fast)
+    with pytest.raises(AssertionError,match="changed command_speed"):
+        paired_audit((folder.parent,))

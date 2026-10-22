@@ -20,6 +20,9 @@ jobs:
       - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability,two_stage_viability_fast --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 10 --seeds 2 --max-time 35 --output results/phase16-holdout --print-episodes --all-traces --failure-traces-per-group 2
       # Unused seeds in both different scenario templates.
       - run: lidar-eval --scenarios crossing,narrow --stresses nominal --modes two_stage_viability,two_stage_viability_fast --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 50 --seeds 2 --max-time 35 --output results/phase16-other --print-episodes --all-traces --failure-traces-per-group 2
+      # Fail CI on ANY diverging command, vehicle state, or episode length.
+      # Also report measured p95/p99 and fraction exceeding the 100ms budget.
+      - run: python -m lidar_sim.phase16_equivalence_audit --roots results/phase16-known,results/phase16-holdout,results/phase16-other --deadline-ms 100 --output results/phase16-audit
       - uses: actions/upload-artifact@v4
         with:
           name: phase16-equivalent-viability
