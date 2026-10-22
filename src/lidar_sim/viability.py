@@ -19,7 +19,7 @@ from .model import Command, State, VehicleConfig
 from .safety import CommandDelayLine
 from .world import World
 from .planner import Plan, collision_free
-from .two_stage import choose_two_stage
+from .two_stage import choose_two_stage, exists_strict_continuation
 
 
 def probe_future(initial: State, command: Command, car: VehicleConfig,
@@ -38,7 +38,8 @@ def probe_future(initial: State, command: Command, car: VehicleConfig,
 
 
 def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
-                            cfg, line: CommandDelayLine) -> Plan:
+                            cfg, line: CommandDelayLine, *,
+                            existence_only: bool = False) -> Plan:
     started = time.perf_counter()
     if (not isinstance(cfg.viability_top_k, int)
             or isinstance(cfg.viability_top_k, bool)
@@ -59,6 +60,7 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
         "lookahead_change": 0,
         "lookahead_no_viable_shortlist": 0,
         "lookahead_probe_s": cfg.viability_probe_s,
+        "lookahead_existence_only": int(existence_only),
     })
     if baseline.unsafe_fallback or not baseline.feasible_count:
         baseline.cost_parts["lookahead_skipped_unsafe_baseline"] = 1
@@ -82,6 +84,12 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
             padding=cfg.prediction_padding)
         if rejected_during_probe:
             child_feasible = 0
+        elif existence_only:
+            # The old method searched ALL child combinations to count them.
+            # We only need to know whether at least one strictly safe pair
+            # exists. A value of 1 is a Boolean witness, NOT the exact count.
+            child_feasible = int(exists_strict_continuation(
+                future[-1],world,car,cfg,future_line))
         else:
             child_plan = choose_two_stage(future[-1], world, car, cfg, future_line)
             child_feasible = (child_plan.feasible_count
@@ -89,6 +97,10 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
         summary.append((command, child_feasible, rejected_during_probe))
         if child_feasible and accepted is None:
             accepted = (command, child_feasible)
+            if existence_only:
+                # Sorted by original cost: later options cannot displace this
+                # command. Breaking is action-equivalent to exhaustive scan.
+                break
 
     baseline.cost_parts["lookahead_probed"] = len(summary)
     baseline.cost_parts["lookahead_viable"] = sum(bool(count) for _, count, _ in summary)
@@ -101,6 +113,7 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
 
     selected_command, selected_child_count = accepted
     baseline.cost_parts["lookahead_child_feasible_count"] = selected_child_count
+    baseline.cost_parts["lookahead_child_count_is_witness"] = int(existence_only)
     if selected_command != baseline.command:
         # Re-run ONLY the strictly feasible first-action subset to recover its
         # best second action and full checked physical brake/hold trajectory.
