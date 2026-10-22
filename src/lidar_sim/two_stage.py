@@ -68,7 +68,8 @@ def continuation_options(first: Command, car: VehicleConfig) -> tuple[Command, .
 
 def choose_two_stage(initial: State, world: World, car: VehicleConfig, cfg,
                      line: CommandDelayLine, *,
-                     forced_first: Command | None = None) -> Plan:
+                     forced_first: Command | None = None,
+                     feasible_first_cache: dict | None = None) -> Plan:
     start = time.perf_counter()
     if cfg.two_stage_second_s <= 0:
         raise ValueError("second-stage window must be positive")
@@ -144,6 +145,15 @@ def choose_two_stage(initial: State, world: World, car: VehicleConfig, cfg,
                           (second.target_steer - first.target_steer)**2)
                 score = costs.total + switch
                 if score < row["total_cost"]:
+                    if feasible_first_cache is not None:
+                        # All five original strict checks have passed. Cache
+                        # only the best continuation for each first command.
+                        # This reproduces forced_first's strict tie rule.
+                        full = controlled + brake[1:] + hold[1:]
+                        parts = costs.as_record()
+                        parts["cost_action_switch"] = switch
+                        parts["total_cost"] = score
+                        feasible_first_cache[first] = (score, full, parts)
                     row.update(costs.as_record())
                     row["cost_action_switch"] = switch
                     row["total_cost"] = score

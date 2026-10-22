@@ -1,0 +1,33 @@
+name: Phase16 matched reference and optimized ablation
+on:
+  push:
+    branches:
+      - feat/phase16-viability-fast-exit
+  pull_request:
+    branches:
+      - feat/one-step-viability-probe
+  workflow_dispatch:
+
+jobs:
+  fast-exit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pytest -q tests/test_viability.py tests/test_phase16_equivalence.py tests/test_phase16_timing.py tests/test_phase16_profile.py
+      - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability_phase15,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 0 --seeds 2 --max-time 35 --output results/phase16-known --print-episodes --all-traces
+      - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability_phase15,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 10 --seeds 2 --max-time 35 --output results/phase16-check --print-episodes --all-traces
+      - run: lidar-eval --scenarios crossing,narrow --stresses nominal --modes two_stage_bodyframe,two_stage_viability_phase15,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 40 --seeds 1 --max-time 35 --output results/phase16-other --print-episodes --all-traces
+      - run: python -m lidar_sim.phase16_equivalence results/phase16-known results/phase16-check results/phase16-other --output results/phase16-equivalence.csv
+      - run: python -m lidar_sim.phase16_timing results/phase16-known results/phase16-check results/phase16-other --output results/phase16-timing.csv
+      - run: python -m lidar_sim.phase16_profile results/phase16-known results/phase16-check results/phase16-other --output results/phase16-profile.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase16-fast-exit-results
+          path: |
+            results/phase16-*
+            results/phase16-timing.csv

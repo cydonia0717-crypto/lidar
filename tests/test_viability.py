@@ -135,3 +135,101 @@ def test_paired_viability_csv_and_all_episode_traces(tmp_path):
     with pytest.raises(ValueError,match="requires common"):
         paired_viability_effects([
             dict(r,goal_criterion="x_gate") for r in rows])
+
+
+def test_phase16_fast_exit_preserves_first_viable_action_and_records_skips(monkeypatch):
+    """On an obstacle-free scene the first ranked candidate has a continuation.
+
+    Once found, probing lower-ranked eligible candidates cannot alter the
+    chosen first command. Metrics must distinguish skipped from rejected.
+    """
+    import lidar_sim.viability as viability
+
+    state, car, cfg = configured()
+    world = World(())
+    line = CommandDelayLine(Command(state.speed, state.steer), cfg.control_delay_s)
+    baseline = viability.choose_two_stage(state, world, car, cfg, line)
+    eligible = sorted(
+        (r for r in baseline.diagnostics
+         if r["status"] in ("eligible", "selected")
+         and r.get("continuation_count", 0) > 0
+         and isfinite(r["total_cost"])),
+        key=lambda r: (r["total_cost"], r["target_speed"], r["target_steer"])
+    )[:cfg.viability_top_k]
+    assert eligible
+
+    calls = []
+    actual = viability.choose_two_stage
+
+    def counted(*args, **kwargs):
+        calls.append(1)
+        return actual(*args, **kwargs)
+
+    monkeypatch.setattr(viability, "choose_two_stage", counted)
+    optimized = viability.choose_viability_probed(state, world, car, cfg, line)
+
+    assert optimized.cost_parts["lookahead_probed"] == 1
+    assert optimized.cost_parts["lookahead_viable"] == 1
+    assert optimized.cost_parts["lookahead_unprobed"] == len(eligible) - 1
+    assert optimized.cost_parts["lookahead_early_exit"] == int(len(eligible) > 1)
+    assert optimized.command == Command(
+        eligible[0]["target_speed"], eligible[0]["target_steer"])
+    assert optimized.feasible_count == baseline.feasible_count
+    assert len(calls) == 1  # only parent is fully scored; child uses witness
+    assert optimized.cost_parts["lookahead_child_calls"] == 1
+    assert optimized.cost_parts["lookahead_child_witness"] == 1
+    assert optimized.cost_parts["lookahead_child_count_exact"] == 0
+
+
+@pytest.mark.parametrize("obstacles", [
+    (),
+    (MovingObstacle("crossing", 13, -4.4, 0, .58),),
+])
+def test_phase16_cached_trajectory_matches_forced_first(obstacles):
+    """Cache and original forced search agree on score, full path and costs."""
+    from lidar_sim.two_stage import choose_two_stage
+
+    state, car, cfg = configured()
+    world = World(obstacles)
+    line = CommandDelayLine(Command(state.speed, state.steer), cfg.control_delay_s)
+    cache = {}
+    baseline = choose_two_stage(
+        state, world, car, cfg, line, feasible_first_cache=cache)
+    assert not baseline.unsafe_fallback
+    assert cache
+    for command, (score, trajectory, parts) in cache.items():
+        forced = choose_two_stage(
+            state, world, car, cfg, line, forced_first=command)
+        assert not forced.unsafe_fallback
+        assert forced.command == command
+        assert forced.score == score
+        assert forced.trajectory == trajectory
+        for key, value in parts.items():
+            assert forced.cost_parts[key] == value
+    assert baseline.command in cache
+
+
+@pytest.mark.parametrize("state,world", [
+    (State(0, 0, 0, 1.5), World(())),
+    (State(0, 0, 0, 1.5),
+     World((MovingObstacle("crossing", 13, -4.4, 0, .58),))),
+    (State(0, 0, 0, 1.5),
+     World((MovingObstacle("overlap", 0, 0, 0, 0, 1),))),
+    (State(2, .2, .1, 1.5),
+     World((MovingObstacle("near", 5, .5, -.2, 0, .6),))),
+])
+def test_strict_child_witness_agrees_with_exhaustive_two_stage(state, world):
+    """Existence is true iff the original exhaustive planner finds a pair."""
+    from lidar_sim.two_stage import choose_two_stage
+    from lidar_sim.viability_witness import strict_continuation_exists
+
+    car = VehicleConfig(road_footprint="rearaxle_rectangle")
+    cfg = PlannerConfig()
+    line = CommandDelayLine(Command(state.speed, state.steer), cfg.control_delay_s)
+    line.enqueue(state.time - .1, Command(.8, .1))
+    before = line.copy()
+    full = choose_two_stage(state, world, car, cfg, line)
+    witness = strict_continuation_exists(state, world, car, cfg, line)
+    assert witness == bool(full.feasible_count and not full.unsafe_fallback)
+    assert line.active == before.active
+    assert line.pending == before.pending
