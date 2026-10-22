@@ -6,9 +6,12 @@ under results/ so that the existing upload-artifact step can retain them.
 The timings are observational and never part of the pass/fail predicate.
 """
 from pathlib import Path
+import csv
 
 from lidar_sim.evaluation import TrialSpec, evaluate_cases, save_study
 from lidar_sim.phase16_equivalence import verify_root
+from lidar_sim.phase16_timing import summarize
+from lidar_sim.phase16_profile import profile
 
 
 def test_phase16_known_critical_closed_loop_equivalence():
@@ -32,3 +35,19 @@ def test_phase16_known_critical_closed_loop_equivalence():
     assert all(r["phase15_decisions"] == r["phase16_decisions"]
                for r in verified)
     assert all(r["equivalent_frames"] > 100 for r in verified)
+    # Persist the raw timing distribution summaries and equivalence verdict
+    # in the existing Actions job artifact rather than only in pytest output.
+    def write_rows(filename, values):
+        with (root / filename).open("w", encoding="utf-8", newline="") as fh:
+            writer = csv.DictWriter(fh, fieldnames=list(values[0]))
+            writer.writeheader()
+            writer.writerows(values)
+
+    write_rows("phase16_equivalence.csv", verified)
+    traces = sorted((root / "all_traces").glob("*.csv"))
+    write_rows("phase16_timing.csv", [summarize(p) for p in traces])
+    write_rows("phase16_profile.csv", [
+        profile(p) for p in traces
+        if p.name.endswith("__two_stage_viability.csv")
+    ])
+
