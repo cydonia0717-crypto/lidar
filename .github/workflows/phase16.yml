@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - feat/phase16-viability-fast-exit
+  pull_request:
+    branches:
+      - feat/one-step-viability-probe
   workflow_dispatch:
 
 jobs:
