@@ -175,4 +175,32 @@ def test_phase16_fast_exit_preserves_first_viable_action_and_records_skips(monke
     assert optimized.command == Command(
         eligible[0]["target_speed"], eligible[0]["target_steer"])
     assert optimized.feasible_count == baseline.feasible_count
-    assert len(calls) == (2 if optimized.command == baseline.command else 3)
+    assert len(calls) == 2  # one parent search and one future search
+
+
+@pytest.mark.parametrize("obstacles", [
+    (),
+    (MovingObstacle("crossing", 13, -4.4, 0, .58),),
+])
+def test_phase16_cached_trajectory_matches_forced_first(obstacles):
+    """Cache and original forced search agree on score, full path and costs."""
+    from lidar_sim.two_stage import choose_two_stage
+
+    state, car, cfg = configured()
+    world = World(obstacles)
+    line = CommandDelayLine(Command(state.speed, state.steer), cfg.control_delay_s)
+    cache = {}
+    baseline = choose_two_stage(
+        state, world, car, cfg, line, feasible_first_cache=cache)
+    assert not baseline.unsafe_fallback
+    assert cache
+    for command, (score, trajectory, parts) in cache.items():
+        forced = choose_two_stage(
+            state, world, car, cfg, line, forced_first=command)
+        assert not forced.unsafe_fallback
+        assert forced.command == command
+        assert forced.score == score
+        assert forced.trajectory == trajectory
+        for key, value in parts.items():
+            assert forced.cost_parts[key] == value
+    assert baseline.command in cache
