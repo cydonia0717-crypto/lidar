@@ -107,3 +107,21 @@ def test_validation_has_same_errors_on_fast_and_exhaustive():
             choose_action(state,World(()),car,replace(PlannerConfig(),viability_top_k=0),mode=mode)
         with pytest.raises(ValueError,match="probe_s"):
             choose_action(state,World(()),car,replace(PlannerConfig(),viability_probe_s=.1),mode=mode)
+
+
+def test_planner_latency_distribution_is_reported_with_real_100ms_budget():
+    from lidar_sim.experiment import RunConfig, run
+    for mode in ("two_stage_viability","two_stage_viability_fast"):
+        result=run("empty",mode=mode,
+                   config=RunConfig(max_time=.5,
+                       physical_road_footprint="rearaxle_rectangle",
+                       physical_body_offset_m=.55,goal_criterion="pose_gate"))
+        timings=[r["planning_ms"] for r in result.trace if "planning_ms" in r]
+        assert timings
+        assert result.planning_period_budget_ms==pytest.approx(100)
+        assert result.planning_max_ms==max(timings)
+        assert 0 <= result.planning_over_period_fraction <= 1
+        assert result.planning_p95_ms <= result.planning_p99_ms
+        assert result.planning_p99_ms <= result.planning_max_ms
+        assert sum(t>100 for t in timings)/len(timings) == pytest.approx(
+            result.planning_over_period_fraction)

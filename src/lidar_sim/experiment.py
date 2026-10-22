@@ -57,6 +57,11 @@ class Result:
     goal_criterion: str = "x_gate"
     physical_body_offset_m: float = 0.55
     assumed_body_offset_m: float = 0.55
+    planning_p95_ms: float = 0.0
+    planning_p99_ms: float = 0.0
+    planning_max_ms: float = 0.0
+    planning_over_period_fraction: float = 0.0
+    planning_period_budget_ms: float = 100.0
 
     def metrics(self) -> dict:
         return {key: value for key, value in asdict(self).items() if key not in ("trace", "decision_snapshot")}
@@ -91,6 +96,7 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
     emergency_steps = stopped_steps = backup_rejections = unsafe_fallback_steps = nominal_no_backup_steps = 0
     actuator = CommandDelayLine(Command(rcfg.start_speed, 0.0), pcfg.control_delay_s)
     plan_time = 0.0
+    plan_timings_ms: list[float] = []
     trace = []
     decision_snapshot = None
     collision = road_exit = success = False
@@ -149,6 +155,7 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
         nominal_no_backup_steps += int(plan.fallback_strategy == "nominal_no_backup")
         stopped_steps += int(state.speed < 0.1)
         plan_time += plan.compute_ms
+        plan_timings_ms.append(plan.compute_ms)
         trace.append({"time": state.time, "x": state.x, "y": state.y,
                       "yaw": state.yaw, "speed": state.speed, "steer": state.steer,
                       "min_clearance": min(physical_road, physical_obstacle),
@@ -157,6 +164,7 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                       "abs_heading_error_deg": status["abs_heading_error_deg"],
                       "historical_x_line_met": int(status["historical_x_line_met"]),
                       "pose_gate_met": int(status["pose_gate_met"]),
+                      "planning_ms": plan.compute_ms,
                       "command_speed": plan.command.target_speed,
                       "command_steer": plan.command.target_steer,
                       "applied_speed": actuator.active.target_speed,
@@ -186,6 +194,12 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                 break
         if physical_road < 0 or physical_obstacle < 0:
             continue
+    timings_sorted=sorted(plan_timings_ms)
+    def nearest_rank(q: float) -> float:
+        if not timings_sorted:
+            return 0.0
+        return timings_sorted[max(0,math.ceil(q*len(timings_sorted))-1)]
+    period_budget=rcfg.dt*1000.0
     return Result(scenario_name, seed, mode, success, collision, road_exit,
                   not (success or collision or road_exit), state.time, min_clearance,
                   emergency_steps, stopped_steps,
@@ -195,7 +209,14 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                   reached_historical_x_line, reached_pose_gate,
                   final_goal["body_center_y_m"],
                   final_goal["abs_heading_error_deg"], rcfg.goal_criterion,
-                  physical_offset, vcfg.rear_axle_to_body_center_m)
+                  physical_offset, vcfg.rear_axle_to_body_center_m,
+                  planning_p95_ms=nearest_rank(.95),
+                  planning_p99_ms=nearest_rank(.99),
+                  planning_max_ms=max(plan_timings_ms,default=0.0),
+                  planning_over_period_fraction=(
+                      sum(t > period_budget for t in plan_timings_ms)
+                      / len(plan_timings_ms) if plan_timings_ms else 0.0),
+                  planning_period_budget_ms=period_budget)
 
 
 def save_result(result: Result, directory: str | Path) -> tuple[Path, Path]:
