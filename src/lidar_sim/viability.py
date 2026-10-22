@@ -50,7 +50,10 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
     if abs(line.delay_s - cfg.control_delay_s) > 1e-8:
         raise ValueError("planner and actuator delays disagree")
 
-    baseline = choose_two_stage(initial, world, car, cfg, line)
+    feasible_first_cache = {}
+    baseline = choose_two_stage(
+        initial, world, car, cfg, line,
+        feasible_first_cache=feasible_first_cache)
     baseline.cost_parts = dict(baseline.cost_parts)
     baseline.cost_parts.update({
         "lookahead_enabled": 1,
@@ -109,16 +112,18 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
     selected_command, selected_child_count = accepted
     baseline.cost_parts["lookahead_child_feasible_count"] = selected_child_count
     if selected_command != baseline.command:
-        # Re-run ONLY the strictly feasible first-action subset to recover its
-        # best second action and full checked physical brake/hold trajectory.
-        alternative = choose_two_stage(
-            initial, world, car, cfg, line, forced_first=selected_command)
-        if alternative.unsafe_fallback or alternative.feasible_count == 0:
-            raise AssertionError("shortlist action lost original strict feasibility")
-        baseline.command = alternative.command
-        baseline.trajectory = alternative.trajectory
-        baseline.score = alternative.score
-        baseline.cost_parts.update(alternative.cost_parts)
+        # The parent search already strictly checked all five phases for
+        # this action and cached its best second-stage continuation.
+        # Avoid repeating the same rollout, brake and hold checks.
+        cached = feasible_first_cache.get(selected_command)
+        if cached is None:
+            raise AssertionError("eligible action missing strictly checked trajectory")
+        cached_score, cached_trajectory, cached_parts = cached
+        baseline.command = selected_command
+        baseline.trajectory = cached_trajectory
+        baseline.score = cached_score
+        baseline.cost_parts.update(cached_parts)
+        baseline.cost_parts["lookahead_cached_alternative"] = 1
         baseline.cost_parts["lookahead_change"] = 1
         for row in baseline.diagnostics:
             row["selected"] = (row["target_speed"] == selected_command.target_speed
