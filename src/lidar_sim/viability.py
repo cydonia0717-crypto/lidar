@@ -87,9 +87,16 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
             child_feasible = (child_plan.feasible_count
                               if not child_plan.unsafe_fallback else 0)
         summary.append((command, child_feasible, rejected_during_probe))
-        if child_feasible and accepted is None:
+        if child_feasible:
+            # Candidates are sorted by original cost.  The first viable one
+            # must be selected; later probes cannot change the issued action.
+            # This is an exact decision-preserving early exit, not a relaxation
+            # of any trajectory or physical-safety check.
             accepted = (command, child_feasible)
+            break
 
+    baseline.cost_parts["lookahead_unprobed"] = len(eligible) - len(summary)
+    baseline.cost_parts["lookahead_early_exit"] = int(accepted is not None and len(summary) < len(eligible))
     baseline.cost_parts["lookahead_probed"] = len(summary)
     baseline.cost_parts["lookahead_viable"] = sum(bool(count) for _, count, _ in summary)
     baseline.cost_parts["lookahead_probe_path_rejected"] = sum(bad for _, _, bad in summary)
