@@ -15,7 +15,11 @@ def test_empty_scene_reaches_goal():
 def test_simulation_deterministic():
     a = run("crossing", seed=3)
     b = run("crossing", seed=3)
-    assert a.trace == b.trace
+    # Wall-clock planner timings vary even when physical rollout is deterministic.
+    assert [{k: v for k, v in row.items() if k != "planning_ms"}
+            for row in a.trace] == [
+                {k: v for k, v in row.items() if k != "planning_ms"}
+                for row in b.trace]
     assert a.min_clearance_m == b.min_clearance_m
 
 
