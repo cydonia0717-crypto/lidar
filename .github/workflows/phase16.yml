@@ -15,7 +15,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install -e '.[dev]'
-      - run: python -m pytest -q tests/test_viability.py tests/test_phase16_equivalence.py tests/test_phase16_timing.py
+      - run: python -m pytest -q tests/test_viability.py tests/test_phase16_equivalence.py tests/test_phase16_timing.py tests/test_phase16_profile.py
       - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability_phase15,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 0 --seeds 2 --max-time 35 --output results/phase16-known --print-episodes --all-traces
       - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability_phase15,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 10 --seeds 2 --max-time 35 --output results/phase16-check --print-episodes --all-traces
       - run: lidar-eval --scenarios crossing,narrow --stresses nominal --modes two_stage_bodyframe,two_stage_viability_phase15,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 40 --seeds 1 --max-time 35 --output results/phase16-other --print-episodes --all-traces
