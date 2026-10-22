@@ -92,7 +92,11 @@ def test_simulated_delay_is_logged_and_reproducible():
     plan = PlannerConfig(control_delay_s=.50)
     first = run('empty', mode='braking', planner=plan)
     second = run('empty', mode='braking', planner=plan)
-    assert first.trace == second.trace
+    # Repeated runs must preserve actuation and physical state, not CPU time.
+    assert [{k: v for k, v in row.items() if k != "planning_ms"}
+            for row in first.trace] == [
+                {k: v for k, v in row.items() if k != "planning_ms"}
+                for row in second.trace]
     assert first.control_delay_s == .50
     assert first.success
     assert first.trace[0]['applied_speed'] == pytest.approx(1.5)
