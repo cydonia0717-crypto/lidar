@@ -248,3 +248,6 @@ python -m lidar_sim.horizon_forensics --seeds 0,1 --horizons 30,35,40 \
 实验版\`two_stage_viability_fast\`保留第十五阶段严格可行候选及代价排序，仅将每个假设未来状态的**完整代价规划**替换为**找到任意完整严格可行续接即退出的布尔判据**，并在最优有续接第一段确定后停止其它候选探测。原\`two_stage_viability\`完整保留，逐帧对比**位置/航向/速度/实际控制指令**完全一致。不会削弱车体道路矩形、动态目标保守圆、完整制动、6s停驻占据、0.25s延迟及严格pose_gate要求。
 
 验证命令：\`python -m pytest -q tests/test_fast_viability.py tests/test_viability.py\`；完整对照执行\`.github/workflows/phase16.yml\`。研究假设、CSV与局限见[第十六阶段计算优化方案](docs/phase16_fast_viability.md)。计算时间是GitHub Runner离线度量，尚非Jetson实测，未反馈到仿真控制延迟。
+
+
+**第十六阶段已完成真实对照**：[逐帧完全等价的快速未来可行性搜索实验报告](docs/phase16_results.md)。独立专用CI已通过20项定向测试，16组配对（32次闭环合成仿真）中两方法全部安全完成、所有实际控制指令和车体姿态逐帧一致。GitHub Runner真实周期规划时间旧版总体均值111.64ms、P99 171.91ms，新fast版29.37ms、P99 50.64ms；100ms预算超限次数1795/2536→2/2536。**这不是Jetson实时测量，也没有将超时反馈物理控制延迟；没有严格实时/实车安全保证。**
