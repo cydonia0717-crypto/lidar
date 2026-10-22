@@ -1,4 +1,4 @@
-name: Phase16 viability fast-exit regression
+name: Phase16 matched reference and optimized ablation
 on:
   push:
     branches:
@@ -15,10 +15,12 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install -e '.[dev]'
-      - run: python -m pytest -q tests/test_viability.py
-      - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 0 --seeds 2 --max-time 35 --output results/phase16-known --print-episodes --all-traces
-      - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 10 --seeds 2 --max-time 35 --output results/phase16-check --print-episodes --all-traces
-      - run: python -m lidar_sim.phase16_timing results/phase16-known results/phase16-check --output results/phase16-timing.csv
+      - run: python -m pytest -q tests/test_viability.py tests/test_phase16_equivalence.py tests/test_phase16_timing.py
+      - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability_phase15,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 0 --seeds 2 --max-time 35 --output results/phase16-known --print-episodes --all-traces
+      - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability_phase15,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 10 --seeds 2 --max-time 35 --output results/phase16-check --print-episodes --all-traces
+      - run: lidar-eval --scenarios crossing,narrow --stresses nominal --modes two_stage_bodyframe,two_stage_viability_phase15,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 40 --seeds 1 --max-time 35 --output results/phase16-other --print-episodes --all-traces
+      - run: python -m lidar_sim.phase16_equivalence results/phase16-known results/phase16-check results/phase16-other --output results/phase16-equivalence.csv
+      - run: python -m lidar_sim.phase16_timing results/phase16-known results/phase16-check results/phase16-other --output results/phase16-timing.csv
       - uses: actions/upload-artifact@v4
         with:
           name: phase16-fast-exit-results
