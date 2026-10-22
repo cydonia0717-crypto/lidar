@@ -7,6 +7,11 @@ on:
     branches:
       - feat/phase16-viability-fast-exit
 
+# Avoid wasting Runner time on superseded 36+ episode sweeps.
+concurrency:
+  group: phase17-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   delayed-actuation:
     runs-on: ubuntu-latest
