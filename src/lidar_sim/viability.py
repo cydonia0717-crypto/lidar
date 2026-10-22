@@ -20,6 +20,7 @@ from .safety import CommandDelayLine
 from .world import World
 from .planner import Plan, collision_free
 from .two_stage import choose_two_stage
+from .viability_witness import strict_continuation_exists
 
 
 def probe_future(initial: State, command: Command, car: VehicleConfig,
@@ -93,11 +94,12 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
             child_feasible = 0
         else:
             child_started = time.perf_counter()
-            child_plan = choose_two_stage(future[-1], world, car, cfg, future_line)
+            # The selection rule uses only existence, never a child ranking.
+            # A single full safety-checked witness is sufficient.
+            child_feasible = int(strict_continuation_exists(
+                future[-1], world, car, cfg, future_line))
             child_ms += (time.perf_counter() - child_started) * 1000
             child_calls += 1
-            child_feasible = (child_plan.feasible_count
-                              if not child_plan.unsafe_fallback else 0)
         summary.append((command, child_feasible, rejected_during_probe))
         if child_feasible:
             # Candidates are sorted by original cost.  The first viable one
@@ -121,7 +123,9 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
         return baseline
 
     selected_command, selected_child_count = accepted
-    baseline.cost_parts["lookahead_child_feasible_count"] = selected_child_count
+    # A witness is a lower bound, not the exhaustive count from phase 15.
+    baseline.cost_parts["lookahead_child_witness"] = int(bool(selected_child_count))
+    baseline.cost_parts["lookahead_child_count_exact"] = 0
     if selected_command != baseline.command:
         # The parent search already strictly checked all five phases for
         # this action and cached its best second-stage continuation.
