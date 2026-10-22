@@ -39,8 +39,8 @@ def test_parked_tail_detects_long_stop_and_fails_for_motion():
 
 def test_audit_reports_stationary_collision_only_when_supported(tmp_path):
     folder = tmp_path / "two_targets__weak_brake__0" / "two_stage_viability"
-    measured = folder / "measured" / "trace.csv"
-    none = folder / "none" / "trace.csv"
+    measured = folder / "measured" / "test_trace.csv"
+    none = folder / "none" / "test_trace.csv"
     for path in (measured, none):
         path.parent.mkdir(parents=True)
         with path.open("w", encoding="utf-8", newline="") as f:
@@ -54,7 +54,7 @@ def test_audit_reports_stationary_collision_only_when_supported(tmp_path):
                                      min_clearance=(-.01 if t == 4 else 1),
                                      command_speed=0, unsafe_fallback=bad,
                                      compute_busy=0))
-    metrics = measured.with_name("trace_metrics.json")
+    metrics = measured.with_name("test_metrics.json")
     metrics.write_text(json.dumps({
         "collision": True, "road_exit": False, "success": False,
         "missed_control_ticks": 0, "unsafe_fallback_steps": 2,
