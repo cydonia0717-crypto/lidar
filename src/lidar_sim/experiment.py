@@ -164,7 +164,12 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                       "abs_heading_error_deg": status["abs_heading_error_deg"],
                       "historical_x_line_met": int(status["historical_x_line_met"]),
                       "pose_gate_met": int(status["pose_gate_met"]),
-                      "planning_ms": plan.compute_ms,
+                      # Wall-clock timing is non-deterministic. Keep existing
+                      # legacy trace equality tests reproducible; include timing
+                      # in the two explicitly benchmarked viability modes only.
+                      **({"planning_ms": plan.compute_ms}
+                         if mode in ("two_stage_viability", "two_stage_viability_fast")
+                         else {}),
                       "command_speed": plan.command.target_speed,
                       "command_steer": plan.command.target_steer,
                       "applied_speed": actuator.active.target_speed,
