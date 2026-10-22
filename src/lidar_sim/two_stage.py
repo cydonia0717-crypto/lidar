@@ -66,6 +66,49 @@ def continuation_options(first: Command, car: VehicleConfig) -> tuple[Command, .
     return tuple(dict.fromkeys(options))
 
 
+
+
+def exists_strict_continuation(initial: State, world: World, car: VehicleConfig,
+                               cfg, line: CommandDelayLine) -> bool:
+    """Existence-only STRICT viability check, with the original sampling/order.
+
+    Invariant: returns True iff choose_two_stage(...).feasible_count > 0
+    and unsafe_fallback is False. The same queued controls, first/second action
+    grids, road and target occupancy, physical brake and stopped hold are
+    checked. There is deliberately NO cost evaluation or choice of an action:
+    it exits immediately at the first feasible complete pair.
+    """
+    if cfg.two_stage_second_s <= 0:
+        raise ValueError("second-stage window must be positive")
+    if cfg.stationary_hold_s < 0:
+        raise ValueError("post-stop horizon must be nonnegative")
+    padding=cfg.prediction_padding
+    prefix=line.copy().advance_path(
+        initial, initial.time+cfg.control_delay_s, car, cfg.safety_dt)
+    if not collision_free(prefix, world, car, predict=True, padding=padding):
+        return False
+    for first_v in cfg.speed_samples:
+        for first_delta in cfg.steer_samples:
+            first=Command(first_v, first_delta)
+            first_path=rollout(prefix[-1], first, car,
+                               cfg.candidate_execute_s, cfg.safety_dt)
+            if not collision_free(first_path, world, car, predict=True, padding=padding):
+                continue
+            for second in continuation_options(first, car):
+                second_path=rollout(first_path[-1], second, car,
+                                    cfg.two_stage_second_s, cfg.safety_dt)
+                if not collision_free(second_path,world,car,
+                                      predict=True,padding=padding):
+                    continue
+                brake=braking_tail(second_path[-1],car,cfg.safety_dt)
+                if not collision_free(brake,world,car,
+                                      predict=True,padding=padding):
+                    continue
+                hold=stationary_hold(brake[-1],cfg.stationary_hold_s,cfg.safety_dt)
+                if collision_free(hold,world,car,predict=True,padding=padding):
+                    return True
+    return False
+
 def choose_two_stage(initial: State, world: World, car: VehicleConfig, cfg,
                      line: CommandDelayLine, *,
                      forced_first: Command | None = None) -> Plan:

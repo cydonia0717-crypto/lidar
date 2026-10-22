@@ -102,6 +102,8 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
     braking: delay_aware plus execute-window/backup-braking tail filter.
     braking_hold: braking plus explicit occupancy check *after* the car stops
                   for stationary_hold_s seconds. Neither mode is formally safe.
+    two_stage_viability_fast: same policy as viability, but future search
+               stops at the first strict feasible continuation witness.
     two_stage_viability: strict two-stage bodyframe candidates; shortlist by
                nominal cost, then probe one later replan after faithfully
                simulating the queued command and actuator delay.
@@ -115,27 +117,30 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
     All modes have the same *actual* actuator delay in closed-loop experiments.
     Future versions will replace the ideal target state with radar tracking.
     """
-    if mode not in ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage", "two_stage_rectroad", "two_stage_bodyframe", "two_stage_viability"):
+    if mode not in ("reactive", "predictive", "delay_aware", "braking", "braking_hold", "two_stage", "two_stage_rectroad", "two_stage_bodyframe", "two_stage_viability", "two_stage_viability_fast"):
         raise ValueError(f"unknown planner mode: {mode}")
     start_time = time.perf_counter()
     if delay_line is None:
         delay_line = CommandDelayLine(Command(initial.speed, initial.steer), cfg.control_delay_s)
     if abs(delay_line.delay_s - cfg.control_delay_s) > 1e-8:
         raise ValueError("planner/actuator control delays must agree")
-    if mode in ("two_stage", "two_stage_rectroad", "two_stage_bodyframe", "two_stage_viability"):
+    if mode in ("two_stage", "two_stage_rectroad", "two_stage_bodyframe", "two_stage_viability", "two_stage_viability_fast"):
         from .two_stage import choose_two_stage
         footprint = {
             "two_stage": "disc",
             "two_stage_rectroad": "rectangle",
             "two_stage_bodyframe": "rearaxle_rectangle",
             "two_stage_viability": "rearaxle_rectangle",
+            "two_stage_viability_fast": "rearaxle_rectangle",
         }[mode]
         # Planning footprint is independent from the PHYSICAL truth model.
         # Keep obstacle collision radii, kinematics, margins identical.
         planning_vehicle = replace(vehicle, road_footprint=footprint)
-        if mode == "two_stage_viability":
+        if mode in ("two_stage_viability", "two_stage_viability_fast"):
             from .viability import choose_viability_probed
-            return choose_viability_probed(initial, world, planning_vehicle, cfg, delay_line)
+            return choose_viability_probed(
+                initial,world,planning_vehicle,cfg,delay_line,
+                existence_only=(mode == "two_stage_viability_fast"))
         return choose_two_stage(initial, world, planning_vehicle, cfg, delay_line)
     prefix = None
     if mode in ("delay_aware", "braking", "braking_hold"):
