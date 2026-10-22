@@ -102,7 +102,8 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
     braking: delay_aware plus execute-window/backup-braking tail filter.
     braking_hold: braking plus explicit occupancy check *after* the car stops
                   for stationary_hold_s seconds. Neither mode is formally safe.
-    two_stage_viability_phase15: frozen PR #15 exhaustive reference for ablation.\n    two_stage_viability: strict two-stage bodyframe candidates; shortlist by
+    two_stage_viability_phase15: frozen PR #15 exhaustive reference for ablation.
+    two_stage_viability: strict two-stage bodyframe candidates; shortlist by
                nominal cost, then probe one later replan after faithfully
                simulating the queued command and actuator delay.
     two_stage_bodyframe: same two-stage search, consistently transform the
@@ -128,7 +129,8 @@ def choose_action(initial: State, world: World, vehicle: VehicleConfig,
             "two_stage": "disc",
             "two_stage_rectroad": "rectangle",
             "two_stage_bodyframe": "rearaxle_rectangle",
-            "two_stage_viability": "rearaxle_rectangle",\n            "two_stage_viability_phase15": "rearaxle_rectangle",
+            "two_stage_viability": "rearaxle_rectangle",
+            "two_stage_viability_phase15": "rearaxle_rectangle",
         }[mode]
         # Planning footprint is independent from the PHYSICAL truth model.
         # Keep obstacle collision radii, kinematics, margins identical.
