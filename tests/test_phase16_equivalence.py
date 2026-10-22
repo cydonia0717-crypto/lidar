@@ -1,5 +1,6 @@
 """Reference-vs-optimized phase16 physical equivalence, not timing identity."""
-from dataclasses import replace
+from pathlib import Path
+import csv
 
 import pytest
 
@@ -46,3 +47,26 @@ def test_phase16_reference_does_not_modify_bodyframe_mode():
             for r in before.trace] == [
                 {k:v for k,v in r.items() if k != "planning_ms"}
                 for r in after.trace]
+
+
+def test_equivalence_audit_detects_command_difference_but_ignores_cpu_noise(tmp_path):
+    """The audit must fail on a control mismatch, not on timing jitter."""
+    from lidar_sim.phase16_equivalence import verify_case
+    old = tmp_path / "empty__nominal__0__two_stage_viability_phase15.csv"
+    new = tmp_path / "empty__nominal__0__two_stage_viability.csv"
+
+    physical = {key: "0" for key in PHYSICAL_KEYS}
+    def save(path, command, ms):
+        with path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=[*PHYSICAL_KEYS, "planning_ms"])
+            writer.writeheader()
+            writer.writerow({**physical, "command_speed": command, "planning_ms": ms})
+
+    save(old, "1.2", "80")
+    save(new, "1.2", "15")
+    verified = verify_case(old, new)
+    assert verified["equivalent_frames"] == 1
+    assert verified["speedup_ratio"] == 80 / 15
+    save(new, "2.4", "15")
+    with pytest.raises(AssertionError, match="first divergence"):
+        verify_case(old, new)
