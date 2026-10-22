@@ -21,6 +21,7 @@ jobs:
       - run: lidar-eval --scenarios crossing,narrow --stresses nominal --modes two_stage_bodyframe,two_stage_viability_phase15,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 40 --seeds 1 --max-time 35 --output results/phase16-other --print-episodes --all-traces
       - run: python -m lidar_sim.phase16_equivalence results/phase16-known results/phase16-check results/phase16-other --output results/phase16-equivalence.csv
       - run: python -m lidar_sim.phase16_timing results/phase16-known results/phase16-check results/phase16-other --output results/phase16-timing.csv
+      - run: python -m lidar_sim.phase16_profile results/phase16-known results/phase16-check results/phase16-other --output results/phase16-profile.csv
       - uses: actions/upload-artifact@v4
         with:
           name: phase16-fast-exit-results
