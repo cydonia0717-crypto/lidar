@@ -28,6 +28,12 @@ class RunConfig:
     goal_heading_tolerance_deg: float = 15.0
     # None means drive-through section; set a limit for a docking experiment.
     goal_speed_limit_mps: float | None = None
+    # Phase17: none preserves the exact phase16 physics/timing semantics.
+    # measured uses observed planner wall time; fixed enables deterministic
+    # timing-stress replay. Both delay command submission to the actuator.
+    compute_delay_mode: str = "none"  # none | measured | fixed
+    compute_fixed_ms: float = 0.0
+    compute_delay_scale: float = 1.0
 
 
 @dataclass
@@ -57,6 +63,8 @@ class Result:
     goal_criterion: str = "x_gate"
     physical_body_offset_m: float = 0.55
     assumed_body_offset_m: float = 0.55
+    missed_control_ticks: int = 0
+    submitted_commands: int = 0
 
     def metrics(self) -> dict:
         return {key: value for key, value in asdict(self).items() if key not in ("trace", "decision_snapshot")}
@@ -73,6 +81,12 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
         raise ValueError("unknown physical road footprint")
     if rcfg.goal_criterion not in ("x_gate", "pose_gate"):
         raise ValueError("unknown goal criterion")
+    if rcfg.compute_delay_mode not in ("none", "measured", "fixed"):
+        raise ValueError("unknown compute delay mode")
+    if not math.isfinite(rcfg.compute_fixed_ms) or rcfg.compute_fixed_ms < 0:
+        raise ValueError("compute_fixed_ms must be nonnegative and finite")
+    if not math.isfinite(rcfg.compute_delay_scale) or rcfg.compute_delay_scale <= 0:
+        raise ValueError("compute_delay_scale must be positive and finite")
     if not math.isfinite(vcfg.rear_axle_to_body_center_m) or not 0 <= vcfg.rear_axle_to_body_center_m <= vcfg.length / 2:
         raise ValueError("invalid planning body offset")
     physical_offset = (vcfg.rear_axle_to_body_center_m
@@ -91,6 +105,9 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
     emergency_steps = stopped_steps = backup_rejections = unsafe_fallback_steps = nominal_no_backup_steps = 0
     actuator = CommandDelayLine(Command(rcfg.start_speed, 0.0), pcfg.control_delay_s)
     plan_time = 0.0
+    missed_control_ticks = 0
+    submitted_commands = 0
+    busy_until = float("-inf")
     trace = []
     decision_snapshot = None
     collision = road_exit = success = False
@@ -128,53 +145,92 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                           "pose_gate_met": int(status["pose_gate_met"]),
                           "command_speed": "", "command_steer": "", "applied_speed": "", "applied_steer": "", "pending_commands": len(actuator.pending), "backup_rejections": "", "unsafe_fallback": "", "fallback_strategy": "", "emergency": ""})
             break
-        plan: Plan = choose_action(state, world, vcfg, pcfg, mode=mode, delay_line=actuator)
-        if decision_snapshot is None and (
-                any(d["status"] != "eligible" for d in plan.diagnostics)
-                or state.x >= world.goal_x * .35):
-            decision_snapshot = {
+        if (rcfg.compute_delay_mode != "none"
+                and state.time < busy_until - 1e-9):
+            # A single planner worker cannot start another solve while busy.
+            # The plant keeps evolving under already committed actuation.
+            missed_control_ticks += 1
+            stopped_steps += int(state.speed < 0.1)
+            trace.append({
                 "time": state.time, "x": state.x, "y": state.y,
-                "yaw": state.yaw, "speed": state.speed, "mode": mode,
-                "rows": plan.diagnostics,
-            }
-        feasible_first = [
-            float(row["target_speed"]) for row in plan.diagnostics
-            if row.get("status") in ("eligible", "selected")
-            and row.get("continuation_count", 0) > 0
-        ]
-        max_feasible_first = max(feasible_first) if feasible_first else None
-        emergency_steps += int(plan.emergency)
-        backup_rejections += plan.rejected_by_backup
-        unsafe_fallback_steps += int(plan.unsafe_fallback)
-        nominal_no_backup_steps += int(plan.fallback_strategy == "nominal_no_backup")
-        stopped_steps += int(state.speed < 0.1)
-        plan_time += plan.compute_ms
-        trace.append({"time": state.time, "x": state.x, "y": state.y,
-                      "yaw": state.yaw, "speed": state.speed, "steer": state.steer,
-                      "min_clearance": min(physical_road, physical_obstacle),
-                      "body_center_x": status["body_center_x_m"],
-                      "body_center_y": status["body_center_y_m"],
-                      "abs_heading_error_deg": status["abs_heading_error_deg"],
-                      "historical_x_line_met": int(status["historical_x_line_met"]),
-                      "pose_gate_met": int(status["pose_gate_met"]),
-                      "planning_ms": plan.compute_ms,
-                      "command_speed": plan.command.target_speed,
-                      "command_steer": plan.command.target_steer,
-                      "applied_speed": actuator.active.target_speed,
-                      "applied_steer": actuator.active.target_steer,
-                      "pending_commands": len(actuator.pending),
-                      "backup_rejections": plan.rejected_by_backup,
-                      "feasible_pairs": plan.feasible_count,
-                      "feasible_first_actions": len(feasible_first),
-                      "max_feasible_first_speed": max_feasible_first,
-                      "moving_first_action_feasible": int(
-                          any(v > 0.1 for v in feasible_first)),
-                      **plan.rejection_counts,
-                      "unsafe_fallback": int(plan.unsafe_fallback),
-                      "fallback_strategy": plan.fallback_strategy,
-                      "emergency": int(plan.emergency),
-                      **plan.cost_parts})
-        actuator.enqueue(state.time, plan.command)
+                "yaw": state.yaw, "speed": state.speed, "steer": state.steer,
+                "min_clearance": min(physical_road, physical_obstacle),
+                "body_center_x": status["body_center_x_m"],
+                "body_center_y": status["body_center_y_m"],
+                "abs_heading_error_deg": status["abs_heading_error_deg"],
+                "historical_x_line_met": int(status["historical_x_line_met"]),
+                "pose_gate_met": int(status["pose_gate_met"]),
+                "planning_ms": "", "command_speed": "", "command_steer": "",
+                "applied_speed": actuator.active.target_speed,
+                "applied_steer": actuator.active.target_steer,
+                "pending_commands": len(actuator.pending),
+                "compute_busy": 1, "planner_busy_until": busy_until,
+                "backup_rejections": "", "unsafe_fallback": "",
+                "fallback_strategy": "", "emergency": "",
+            })
+        else:
+            plan: Plan = choose_action(state, world, vcfg, pcfg, mode=mode, delay_line=actuator)
+            if decision_snapshot is None and (
+                    any(d["status"] != "eligible" for d in plan.diagnostics)
+                    or state.x >= world.goal_x * .35):
+                decision_snapshot = {
+                    "time": state.time, "x": state.x, "y": state.y,
+                    "yaw": state.yaw, "speed": state.speed, "mode": mode,
+                    "rows": plan.diagnostics,
+                }
+            feasible_first = [
+                float(row["target_speed"]) for row in plan.diagnostics
+                if row.get("status") in ("eligible", "selected")
+                and row.get("continuation_count", 0) > 0
+            ]
+            max_feasible_first = max(feasible_first) if feasible_first else None
+            emergency_steps += int(plan.emergency)
+            backup_rejections += plan.rejected_by_backup
+            unsafe_fallback_steps += int(plan.unsafe_fallback)
+            nominal_no_backup_steps += int(plan.fallback_strategy == "nominal_no_backup")
+            stopped_steps += int(state.speed < 0.1)
+            plan_time += plan.compute_ms
+            trace.append({"time": state.time, "x": state.x, "y": state.y,
+                          "yaw": state.yaw, "speed": state.speed, "steer": state.steer,
+                          "min_clearance": min(physical_road, physical_obstacle),
+                          "body_center_x": status["body_center_x_m"],
+                          "body_center_y": status["body_center_y_m"],
+                          "abs_heading_error_deg": status["abs_heading_error_deg"],
+                          "historical_x_line_met": int(status["historical_x_line_met"]),
+                          "pose_gate_met": int(status["pose_gate_met"]),
+                          "planning_ms": plan.compute_ms,
+                          "command_speed": plan.command.target_speed,
+                          "command_steer": plan.command.target_steer,
+                          "applied_speed": actuator.active.target_speed,
+                          "applied_steer": actuator.active.target_steer,
+                          "pending_commands": len(actuator.pending),
+                          "backup_rejections": plan.rejected_by_backup,
+                          "feasible_pairs": plan.feasible_count,
+                          "feasible_first_actions": len(feasible_first),
+                          "max_feasible_first_speed": max_feasible_first,
+                          "moving_first_action_feasible": int(
+                              any(v > 0.1 for v in feasible_first)),
+                          **plan.rejection_counts,
+                          "unsafe_fallback": int(plan.unsafe_fallback),
+                          "fallback_strategy": plan.fallback_strategy,
+                          "emergency": int(plan.emergency),
+                          **plan.cost_parts})
+            submitted_commands += 1
+            if rcfg.compute_delay_mode == "none":
+                submit_delay_s = 0.0
+            elif rcfg.compute_delay_mode == "fixed":
+                submit_delay_s = rcfg.compute_fixed_ms / 1000.0
+            else:
+                submit_delay_s = plan.compute_ms / 1000.0
+            submit_delay_s *= rcfg.compute_delay_scale
+            busy_until = state.time + submit_delay_s
+            if rcfg.compute_delay_mode != "none":
+                trace[-1]["compute_busy"] = 0
+                trace[-1]["compute_submit_delay_ms"] = submit_delay_s * 1000
+                trace[-1]["planner_busy_until"] = busy_until
+            # Submission occurs when CPU finishes. The original 0.25s
+            # actuator transport delay begins only *after* this time.
+            actuator.enqueue(state.time + submit_delay_s, plan.command)
         substeps = actuator.advance_path(state, state.time + rcfg.dt, vcfg,
                                          min(pcfg.safety_dt, rcfg.dt))
         for substep in substeps[1:]:
@@ -190,13 +246,14 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
     return Result(scenario_name, seed, mode, success, collision, road_exit,
                   not (success or collision or road_exit), state.time, min_clearance,
                   emergency_steps, stopped_steps,
-                  plan_time / max(1, len(trace) - 1),
+                  plan_time / max(1, submitted_commands),
                   backup_rejections, unsafe_fallback_steps, nominal_no_backup_steps,
                   pcfg.control_delay_s, trace, decision_snapshot,
                   reached_historical_x_line, reached_pose_gate,
                   final_goal["body_center_y_m"],
                   final_goal["abs_heading_error_deg"], rcfg.goal_criterion,
-                  physical_offset, vcfg.rear_axle_to_body_center_m)
+                  physical_offset, vcfg.rear_axle_to_body_center_m,
+                  missed_control_ticks, submitted_commands)
 
 
 def save_result(result: Result, directory: str | Path) -> tuple[Path, Path]:
