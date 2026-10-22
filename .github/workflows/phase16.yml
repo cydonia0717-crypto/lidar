@@ -1,0 +1,26 @@
+name: Phase16 equivalent feasibility short-circuit
+on:
+  push:
+    branches: [feat/fast-viability-short-circuit]
+  workflow_dispatch:
+
+jobs:
+  equivalent-fast-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pytest -q tests/test_viability.py tests/test_viability_fast.py
+      # SAME seed/world/dynamics/actuator truth; all 3 modes run paired.
+      - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability,two_stage_viability_fast --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 0 --seeds 2 --max-time 35 --output results/phase16-known --print-episodes --all-traces --failure-traces-per-group 2
+      - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability,two_stage_viability_fast --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 10 --seeds 2 --max-time 35 --output results/phase16-holdout --print-episodes --all-traces --failure-traces-per-group 2
+      # Unused seeds in both different scenario templates.
+      - run: lidar-eval --scenarios crossing,narrow --stresses nominal --modes two_stage_viability,two_stage_viability_fast --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 50 --seeds 2 --max-time 35 --output results/phase16-other --print-episodes --all-traces --failure-traces-per-group 2
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase16-equivalent-viability
+          path: results/phase16-*

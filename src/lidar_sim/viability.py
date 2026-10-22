@@ -19,7 +19,7 @@ from .model import Command, State, VehicleConfig
 from .safety import CommandDelayLine
 from .world import World
 from .planner import Plan, collision_free
-from .two_stage import choose_two_stage
+from .two_stage import choose_two_stage, has_strict_two_stage_successor
 
 
 def probe_future(initial: State, command: Command, car: VehicleConfig,
@@ -38,7 +38,7 @@ def probe_future(initial: State, command: Command, car: VehicleConfig,
 
 
 def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
-                            cfg, line: CommandDelayLine) -> Plan:
+                            cfg, line: CommandDelayLine, *, fast: bool = False) -> Plan:
     started = time.perf_counter()
     if (not isinstance(cfg.viability_top_k, int)
             or isinstance(cfg.viability_top_k, bool)
@@ -59,6 +59,8 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
         "lookahead_change": 0,
         "lookahead_no_viable_shortlist": 0,
         "lookahead_probe_s": cfg.viability_probe_s,
+        "lookahead_existential_fast": int(fast),
+        "lookahead_early_exit_after_viable": 0,
     })
     if baseline.unsafe_fallback or not baseline.feasible_count:
         baseline.cost_parts["lookahead_skipped_unsafe_baseline"] = 1
@@ -82,6 +84,11 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
             padding=cfg.prediction_padding)
         if rejected_during_probe:
             child_feasible = 0
+        elif fast:
+            # The old caller only needs >0 to choose this first command.
+            # The value 1 is an existence flag, NOT the full child count.
+            child_feasible = int(has_strict_two_stage_successor(
+                future[-1], world, car, cfg, future_line))
         else:
             child_plan = choose_two_stage(future[-1], world, car, cfg, future_line)
             child_feasible = (child_plan.feasible_count
@@ -89,6 +96,12 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
         summary.append((command, child_feasible, rejected_during_probe))
         if child_feasible and accepted is None:
             accepted = (command, child_feasible)
+            if fast:
+                # Candidates were already ordered by original cost. Thus no
+                # unprobed later candidate can replace the accepted action.
+                # Counters reflect only PROBED candidates, not all top K.
+                baseline.cost_parts["lookahead_early_exit_after_viable"] = 1
+                break
 
     baseline.cost_parts["lookahead_probed"] = len(summary)
     baseline.cost_parts["lookahead_viable"] = sum(bool(count) for _, count, _ in summary)
@@ -122,3 +135,9 @@ def choose_viability_probed(initial: State, world: World, car: VehicleConfig,
                 row["status"] = "eligible"
     baseline.compute_ms = (time.perf_counter() - started) * 1000
     return baseline
+
+
+def choose_viability_fast(initial: State, world: World, car: VehicleConfig,
+                          cfg, line: CommandDelayLine) -> Plan:
+    """Same selected command and original safety filter; less redundant work."""
+    return choose_viability_probed(initial, world, car, cfg, line, fast=True)
