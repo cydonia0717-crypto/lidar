@@ -17,7 +17,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install -e '.[dev]'
-      - run: python -m pytest -q tests/test_phase17_delay.py tests/test_phase17_eval.py tests/test_phase17_analysis.py
+      - run: python -m pytest -q tests/test_phase17_delay.py tests/test_phase17_eval.py tests/test_phase17_analysis.py tests/test_phase17_replay.py
       - run: python -m lidar_sim.phase17_eval --scenarios two_targets --stress weak_brake --seed-start 1 --seeds 1 --modes two_stage_bodyframe,two_stage_viability --policies none,fixed:80,fixed:160,measured --max-time 35 --output results/phase17-known
       # Broader paired CPU-feedback ablation: same seeds/physics as phase16.
       # Full three-controller pairs are separate from the fixed-lag seed1 sweep.
@@ -25,6 +25,10 @@ jobs:
       - run: python -m lidar_sim.phase17_eval --scenarios two_targets --stress weak_brake --seed-start 10 --seeds 2 --modes two_stage_bodyframe,two_stage_viability_phase15,two_stage_viability --policies none,measured --max-time 35 --output results/phase17-holdout-paired
       - run: python -m lidar_sim.phase17_eval --scenarios crossing,narrow --stress nominal --seed-start 40 --seeds 1 --modes two_stage_bodyframe,two_stage_viability_phase15,two_stage_viability --policies none,measured --max-time 35 --output results/phase17-other-paired
       - run: python -m lidar_sim.phase17_analysis results/phase17-known-paired results/phase17-holdout-paired results/phase17-other-paired --output results/phase17-paired.csv
+      # Replay recorded measured CPU durations deterministically; fail the
+      # CI if the previously observed collision or any physical action changes.
+      - run: python -m lidar_sim.phase17_replay --root results/phase17-known-paired --scenario two_targets --stress weak_brake --seed 0 --modes two_stage_viability,two_stage_viability_phase15,two_stage_bodyframe --output results/phase17-seed0-replay.csv
+
       - uses: actions/upload-artifact@v4
         with:
           name: phase17-latency-feedback-output
@@ -34,3 +38,4 @@ jobs:
             results/phase17-holdout-paired/
             results/phase17-other-paired/
             results/phase17-paired.csv
+            results/phase17-seed0-replay.csv
