@@ -1,0 +1,24 @@
+name: Phase16 viability fast-exit regression
+on:
+  push:
+    branches:
+      - feat/phase16-viability-fast-exit
+  workflow_dispatch:
+
+jobs:
+  fast-exit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pytest -q tests/test_viability.py
+      - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 0 --seeds 2 --max-time 35 --output results/phase16-known --print-episodes --all-traces
+      - run: lidar-eval --scenarios two_targets --stresses weak_brake --modes two_stage_bodyframe,two_stage_viability --physical-road-footprint rearaxle_rectangle --goal-criterion pose_gate --seed-start 10 --seeds 2 --max-time 35 --output results/phase16-check --print-episodes --all-traces
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase16-fast-exit-results
+          path: results/phase16-*
