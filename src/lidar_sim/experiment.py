@@ -31,7 +31,9 @@ class RunConfig:
     # Phase17: none preserves the exact phase16 physics/timing semantics.
     # measured uses observed planner wall time; fixed enables deterministic
     # timing-stress replay. Both delay command submission to the actuator.
-    compute_delay_mode: str = "none"  # none | measured | fixed
+    compute_delay_mode: str = "none"  # none | measured | fixed | replay
+    # A per-decision computation-duration trace permits deterministic replay.
+    compute_replay_ms: tuple[float, ...] | None = None
     compute_fixed_ms: float = 0.0
     compute_delay_scale: float = 1.0
 
@@ -81,12 +83,18 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
         raise ValueError("unknown physical road footprint")
     if rcfg.goal_criterion not in ("x_gate", "pose_gate"):
         raise ValueError("unknown goal criterion")
-    if rcfg.compute_delay_mode not in ("none", "measured", "fixed"):
+    if rcfg.compute_delay_mode not in ("none", "measured", "fixed", "replay"):
         raise ValueError("unknown compute delay mode")
     if not math.isfinite(rcfg.compute_fixed_ms) or rcfg.compute_fixed_ms < 0:
         raise ValueError("compute_fixed_ms must be nonnegative and finite")
     if not math.isfinite(rcfg.compute_delay_scale) or rcfg.compute_delay_scale <= 0:
         raise ValueError("compute_delay_scale must be positive and finite")
+    if rcfg.compute_delay_mode == "replay":
+        durations = rcfg.compute_replay_ms
+        if (not isinstance(durations, (tuple, list)) or not durations
+                or any(not isinstance(v, (int, float))
+                       or not math.isfinite(v) or v < 0 for v in durations)):
+            raise ValueError("replay mode requires finite nonnegative per-decision ms")
     if not math.isfinite(vcfg.rear_axle_to_body_center_m) or not 0 <= vcfg.rear_axle_to_body_center_m <= vcfg.length / 2:
         raise ValueError("invalid planning body offset")
     physical_offset = (vcfg.rear_axle_to_body_center_m
@@ -220,6 +228,13 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                 submit_delay_s = 0.0
             elif rcfg.compute_delay_mode == "fixed":
                 submit_delay_s = rcfg.compute_fixed_ms / 1000.0
+            elif rcfg.compute_delay_mode == "replay":
+                # The decision index counts only launched solves, not skipped
+                # 100ms control slots. Missing data is a hard error.
+                index = submitted_commands - 1
+                if index >= len(rcfg.compute_replay_ms):
+                    raise ValueError("compute duration replay exhausted")
+                submit_delay_s = rcfg.compute_replay_ms[index] / 1000.0
             else:
                 submit_delay_s = plan.compute_ms / 1000.0
             submit_delay_s *= rcfg.compute_delay_scale
