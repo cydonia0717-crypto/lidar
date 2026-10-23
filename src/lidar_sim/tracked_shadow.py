@@ -6,7 +6,8 @@ inject ground truth, publish ROS commands, or score collision outcomes.
 
 For each track, its (x, y) is the estimate AT observed_at_s, not at the
 planning tick. Its CV prediction is projected to absolute planner time by
-MovingObstacle.position(t), preventing the common double-aging error.
+MovingObstacle.position(t) anchored at observation time, preventing
+double-aging and cancellation with epoch-scale time stamps.
 """
 from __future__ import annotations
 
@@ -190,10 +191,12 @@ def parse_snapshot(data: Mapping[str, Any], *,
             n = item["point_count"]
             if isinstance(n, bool) or not isinstance(n, int) or n < 0:
                 raise SnapshotError("point_count must be nonnegative integer")
-        # MovingObstacle coordinates are model x/y intercepts at absolute t=0.
+        # Track position is anchored at its ORIGINAL observation time.
+        # Epoch-scale ROS wall-clock time must not be multiplied and then
+        # subtracted from the observed position: the cancellation corrupts
+        # small motion differences and obscures timestamp errors.
         observed.append(MovingObstacle(
-            name, px - vx * observed_at, py - vy * observed_at,
-            vx, vy, radius))
+            name, px, py, vx, vy, radius, observed_at))
     world = World(tuple(observed), road_half_width=half_width,
                   goal_x=goal_x, safety_margin=margin)
     return EstimateSnapshot(
