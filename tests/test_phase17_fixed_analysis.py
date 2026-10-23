@@ -76,7 +76,10 @@ def test_mismatched_fixed_lag_grids_fail(tmp_path):
 
 def test_incorrect_logged_submission_lag_is_rejected(tmp_path):
     row = write_case(tmp_path, "two_stage_viability", 40)
-    row["fixed_compute_ms"] = 60
     save_episodes(tmp_path, [row])
-    with pytest.raises(FileNotFoundError):
+    trace = (tmp_path / row["case_id"] / row["mode"] / "fixed_40ms" /
+             "two_targets_two_stage_viability_0_trace.csv")
+    contents = trace.read_text(encoding="utf-8")
+    trace.write_text(contents.replace(",40,0", ",20,0"), encoding="utf-8")
+    with pytest.raises(AssertionError, match="injected compute lag"):
         analyze_sweep(tmp_path)
