@@ -62,6 +62,22 @@ def test_deterministic_noise_independent_of_global_rng_and_mode_order():
     assert any(a.blocked_reason for a in one)
 
 
+
+
+def test_new_uninitialized_target_blocks_even_with_valid_existing_track():
+    cfg = PerceptionConfig(
+        position_sigma_m=0, range_sigma_per_m=0,
+        capture_delay_ticks=0, dropout_probability=0)
+    tracker = SimulatedPerception(cfg, seed=12)
+    old = MovingObstacle("old", 10, -1, 0, .3)
+    just_appeared = MovingObstacle("new", 15, 1, 0, -.4)
+    tracker.observe(World((old,)), history(1), dt=.1)
+    frame = tracker.observe(World((old, just_appeared)), history(2), dt=.1)
+    assert frame.valid_tracks == 1
+    assert frame.withheld_tracks == 1
+    assert frame.blocked_reason == "uninitialized_or_no_tracks"
+    assert [o.name for o in frame.estimated_world.obstacles] == ["old"]
+
 def test_permanent_dropout_is_never_interpreted_as_free_space():
     tracker = SimulatedPerception(PerceptionConfig(
         dropout_probability=1, capture_delay_ticks=0), seed=99)
