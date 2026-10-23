@@ -1,0 +1,1 @@
+{"frame":"odom","t_s":20,"ego":{"x_m":0,"y_m":0,"yaw_rad":0,"speed_mps":1.5,"steer_rad":0},"road":{"half_width_m":3.25,"goal_x_m":28,"safety_margin_m":0.2},"actuator":{"delay_s":0.25,"active":{"target_speed_mps":1.5,"target_steer_rad":0},"pending":[]},"tracks":[{"id":"synthetic_lidar_track","observed_at_s":20,"x_m":12,"y_m":0,"vx_mps":0,"vy_mps":0,"radius_m":0.35}]}
