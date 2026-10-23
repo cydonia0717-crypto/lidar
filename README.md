@@ -241,3 +241,16 @@ python -m lidar_sim.horizon_forensics --seeds 0,1 --horizons 30,35,40 \
 
 
 **第十五阶段已实跑消融**：[有限未来可行性探测与真实结果](docs/phase15_results.md)：7项针对性单元测试通过；6组配对共12次合成闭环仿真，双目标弱制动4个种子中原版1/4成功、3碰撞，新前瞻模式4/4成功、无碰撞；另外crossing/narrow两组均成功。动作首次分叉在2.5～2.9秒，每回合仅2～6次指令变化，却提前于旧模式的无解状态。但规划耗时在第二轮GitHub Runner约88～121ms/周期（首轮约130～162ms），原方法约18～22ms（首轮约26～34ms），**不能在100ms控制周期上声明实时性能**。这些种子属于小样本、部分已被以前阶段研究过，只有二维理想CV真值；没有概率安全或递归可行性保证。
+
+
+## 感知—规划接口试验（只读，不控制车辆）
+
+为避免继续把仿真真值误当作LiDAR估计，单独提供 `lidar_sim.tracked_shadow`：输入固定 `odom` 坐标系下带观测时戳的**动态目标估计**、后轴车辆状态和实际指令队列，转换成现有第16阶段规划器可接受的状态，仅输出建议速度/转向与诊断CSV。目标过期、无可靠轨迹、坐标系或执行队列缺失均不得假设自由空间。含合成fixture、独立测试与GitHub Actions。
+
+~~~bash
+python -m lidar_sim.tracked_shadow \
+  --input tests/fixtures/tracked_shadow_synthetic.jsonl \
+  --output results/tracked-shadow-synthetic.csv
+~~~
+
+详细字段、时间基准、适用限制及真实ROS bag导出计划见 [跟踪数据影子回放接口契约](docs/phase18_perception_contract.md)。**该功能尚未使用真实LiDAR记录，没有闭环成功率；不会发布底盘命令。**
