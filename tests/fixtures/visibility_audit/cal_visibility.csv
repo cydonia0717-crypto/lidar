@@ -1,0 +1,4 @@
+time_s,frame,object_id,visibility,x_m,y_m
+10,odom,synthetic_visible_a,visible,12.1,0
+10,odom,synthetic_untracked_b,visible,20,0
+10,odom,synthetic_occluded,occluded,,

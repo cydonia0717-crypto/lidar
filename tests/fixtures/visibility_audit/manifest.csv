@@ -1,0 +1,3 @@
+episode_id,session_id,split,snapshot_jsonl,visibility_csv,annotation_kind
+synthetic_cal,synth_session_1,calibration,cal.jsonl,cal_visibility.csv,independent_visibility
+synthetic_test,synth_session_2,test,test.jsonl,test_visibility.csv,independent_visibility
