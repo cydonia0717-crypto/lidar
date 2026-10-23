@@ -239,48 +239,91 @@ def conformal_quantile(values: list[float], alpha: float) -> float | None:
     return sorted(values)[k-1]
 
 
+def _fully_scored_group(row: Mapping[str, Any]) -> bool:
+    """A group episode is usable only when *every* prediction origin is scored.
+
+    Complete-case selection over partially annotated/occluded episodes gives a
+    systematically optimistic empirical coverage, even if we report missing
+    counts elsewhere. The unit is an episode/group, never an individual frame.
+    """
+    total = int(row["prediction_origins"])
+    complete = int(row["complete_segments"])
+    missing = int(row["incomplete_or_stale_segments"])
+    if min(total, complete, missing) < 0 or complete + missing != total:
+        raise AuditError("inconsistent episode/group segment counts")
+    return (total > 0 and missing == 0 and complete == total
+            and row["worst_complete_segment_error_m"] != "")
+
+
 def summarize(rows: list[dict], alpha: float) -> list[dict]:
-    calibration = [r for r in rows
-                   if r["split"] == "calibration"
-                   and r["worst_complete_segment_error_m"] != ""]
+    """Show conditional complete-case coverage AND missing-as-failure bounds.
+
+    A test episode/group containing even one missing forecast remains in the
+    denominator of the lower-bound coverage. 'Unscored' cannot become 'safe'.
+    Pooled calibration requires every observed group in that episode complete;
+    grouped calibration requires the respective group completely scored.
+    Neither construction provides a guarantee under informative missingness.
+    """
+    calibrations: dict[str, list[dict]] = defaultdict(list)
     heldout = [r for r in rows if r["split"] == "test"]
-    pooled_per_episode: dict[str, float] = {}
-    for r in calibration:
-        key = r["episode_id"]
-        pooled_per_episode[key] = max(
-            pooled_per_episode.get(key, 0.0),
-            float(r["worst_complete_segment_error_m"]))
-    pooled_q = conformal_quantile(list(pooled_per_episode.values()), alpha)
+    for r in rows:
+        if r["split"] == "calibration":
+            calibrations[r["episode_id"]].append(r)
+    complete_pooled = {}
+    for episode_id, episode_rows in calibrations.items():
+        if episode_rows and all(_fully_scored_group(r) for r in episode_rows):
+            complete_pooled[episode_id] = max(
+                float(r["worst_complete_segment_error_m"])
+                for r in episode_rows)
+    pooled_q = conformal_quantile(list(complete_pooled.values()), alpha)
     groups = sorted({r["quality_group"] for r in rows if
                      r["quality_group"] != "no_observed_tracks"})
+    missing_whole_episodes = sum(
+        r["quality_group"] == "no_observed_tracks" for r in heldout)
     results = []
     for group in groups:
+        cal = [r for r in rows if r["split"] == "calibration"
+               and r["quality_group"] == group]
         cal_values = [float(r["worst_complete_segment_error_m"])
-                      for r in calibration if r["quality_group"] == group]
+                      for r in cal if _fully_scored_group(r)]
         q = conformal_quantile(cal_values, alpha)
         trials = [r for r in heldout if r["quality_group"] == group]
-        complete = [r for r in trials if r["worst_complete_segment_error_m"] != ""]
+        complete = [r for r in trials if _fully_scored_group(r)]
+        total = len(trials)
+        missing = total - len(complete)
         for method, radius in (("pooled", pooled_q), ("grouped", q)):
             success = (sum(float(r["worst_complete_segment_error_m"]) <= radius
                            for r in complete) if radius is not None else None)
+            observed = success / len(complete) if (
+                success is not None and complete) else ""
+            lower = success / total if (
+                success is not None and total) else ""
+            upper = (success + missing) / total if (
+                success is not None and total) else ""
             results.append({
                 "quality_group": group, "method": method,
                 "alpha_target": alpha,
                 "calibration_episode_units": (
-                    len(pooled_per_episode) if method == "pooled" else len(cal_values)),
-                "test_episode_units": len(trials),
+                    len(complete_pooled) if method == "pooled" else len(cal_values)),
+                "calibration_incomplete_group_units": sum(
+                    not _fully_scored_group(r) for r in cal),
+                "test_episode_units": total,
                 "test_complete_episode_units": len(complete),
-                "test_unscored_episode_units": len(trials)-len(complete),
+                "test_unscored_episode_units": missing,
+                # A dataset with zero observed tracks cannot be allocated to a
+                # quality group; expose this excluded denominator explicitly.
+                "test_whole_episode_no_tracks_units": missing_whole_episodes,
                 "radius_m": radius if radius is not None else "",
-                "observed_covered_complete": success if success is not None else "",
-                "observed_fraction": (
-                    success / len(complete) if success is not None and complete else ""),
+                "observed_covered_complete": (
+                    success if success is not None else ""),
+                "observed_fraction": observed,
+                "missing_as_failure_lower_bound": lower,
+                "missing_as_success_upper_bound": upper,
                 "status": ("insufficient_independent_calibration_episodes"
                            if radius is None else
                            "empirical_coverage_not_collision_probability"),
             })
     return results
-
 
 def write_rows(path: Path, rows: list[dict]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
