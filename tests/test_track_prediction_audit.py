@@ -192,6 +192,13 @@ def test_audit_cli_writes_real_summary_columns_without_claiming_lidar(tmp_path, 
     main()
     assert (out / "episode_segment_error.csv").exists()
     assert (out / "coverage_audit.csv").exists()
+    with (out / "recording_quality.csv").open(
+            newline="", encoding="utf-8") as fh:
+        qa = list(csv.DictReader(fh))
+    assert len(qa) == 16
+    assert all(int(r["snapshots"]) == 1 for r in qa)
+    assert all(int(r["snapshots_without_any_tracks"]) == 0 for r in qa)
+    assert all(int(r["snapshot_gap_events"]) == 0 for r in qa)
     per_horizon = out / "per_horizon_residuals.csv"
     assert per_horizon.exists()
     with per_horizon.open(encoding="utf-8", newline="") as f:
@@ -291,3 +298,27 @@ def test_bad_segment_count_rejected_instead_of_hidden(tmp_path):
     rows.append(bad)
     with pytest.raises(AuditError, match="inconsistent"):
         summarize(rows, .1)
+
+
+def test_capture_quality_exposes_unobserved_ticks_and_time_gaps(tmp_path):
+    a, b = write_episode(tmp_path, "quality", good_error=.1, poor_error=.2)
+    original = json.loads((tmp_path / a).read_text(encoding="utf-8"))
+    no_detection = json.loads(json.dumps(original))
+    no_detection["t_s"] = original["t_s"] + .8
+    no_detection["tracks"] = []
+    (tmp_path / a).write_text(
+        json.dumps(original) + "\n" + json.dumps(no_detection) + "\n",
+        encoding="utf-8")
+    quality = []
+    rows = evaluate_episode(
+        Episode("quality", "test", tmp_path/a, tmp_path/b),
+        (.5, 1., 2.), .01, good_points=10, max_good_age_s=.15,
+        max_track_age_s=.35, recording_quality_rows=quality)
+    assert len(rows) == 2
+    assert len(quality) == 1
+    entry = quality[0]
+    assert entry["snapshots"] == 2
+    assert entry["snapshots_without_any_tracks"] == 1
+    assert entry["snapshot_gap_events"] == 1
+    assert entry["observed_track_origins"] == 2
+    assert entry["all_snapshot_times_contiguous_under_limit"] == 0
