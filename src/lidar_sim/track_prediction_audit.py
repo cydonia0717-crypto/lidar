@@ -139,7 +139,8 @@ def quality_group(track: Mapping[str, Any], now_s: float, *,
 def evaluate_episode(episode: Episode, horizons: tuple[float, ...],
                      tolerance_s: float, *,
                      good_points: int, max_good_age_s: float,
-                     max_track_age_s: float) -> list[dict]:
+                     max_track_age_s: float,
+                     horizon_rows: list[dict] | None = None) -> list[dict]:
     labels = load_labels(episode.labels)
     stats = defaultdict(lambda: {"origins": 0, "complete": 0,
                                  "missing": 0, "worst": -math.inf})
@@ -158,19 +159,41 @@ def evaluate_episode(episode: Episode, horizons: tuple[float, ...],
                                   max_good_age_s=max_good_age_s)
             entry = stats[group]
             entry["origins"] += 1
-            if track["id"] in snapshot.stale_track_ids:
-                entry["missing"] += 1
-                continue
+            stale = track["id"] in snapshot.stale_track_ids
             errors = []
             for h in horizons:
                 t = snapshot.time_s + h
-                truth = reference_at(labels, track["id"], t, tolerance_s)
-                if truth is None:
-                    break
+                # A stale observation is not eligible for prediction-quality
+                # claims, even if an external reference happens to exist.
+                truth = (None if stale else
+                         reference_at(labels, track["id"], t, tolerance_s))
                 px, py = obstacle.position(t)
-                errors.append(math.hypot(px-truth[0], py-truth[1]))
+                error = (math.hypot(px - truth[0], py - truth[1])
+                         if truth is not None else None)
+                if horizon_rows is not None:
+                    horizon_rows.append({
+                        "episode_id": episode.episode_id,
+                        "split": episode.split,
+                        "track_id": track["id"],
+                        "quality_group": group,
+                        "origin_t_s": snapshot.time_s,
+                        "observed_at_s": track["observed_at_s"],
+                        "observation_age_s": snapshot.time_s-track["observed_at_s"],
+                        "horizon_s": h,
+                        "reference_target_t_s": t,
+                        "prediction_x_m": px,
+                        "prediction_y_m": py,
+                        "reference_x_m": (truth[0] if truth is not None else ""),
+                        "reference_y_m": (truth[1] if truth is not None else ""),
+                        "radial_error_m": (error if error is not None else ""),
+                        "status": ("stale_track" if stale else
+                                   "missing_independent_reference"
+                                   if truth is None else "matched"),
+                    })
+                if error is not None:
+                    errors.append(error)
             if len(errors) != len(horizons):
-                # A missing reference is missing, not a perfect prediction.
+                # A missing/stale horizon invalidates the complete segment.
                 entry["missing"] += 1
             else:
                 entry["complete"] += 1
@@ -295,13 +318,16 @@ def main() -> None:
             or a.max_track_age_s < 0):
         p.error("invalid matching/quality configuration")
     episodes = load_manifest(a.manifest)
+    horizon_rows: list[dict] = []
     rows = [row for e in episodes for row in evaluate_episode(
         e, horizons, a.reference_tolerance_s,
         good_points=a.good_min_points,
         max_good_age_s=a.good_max_age_s,
-        max_track_age_s=a.max_track_age_s)]
+        max_track_age_s=a.max_track_age_s, horizon_rows=horizon_rows)]
     summary = summarize(rows, a.alpha)
     write_rows(a.output / "episode_segment_error.csv", rows)
+    if horizon_rows:
+        write_rows(a.output / "per_horizon_residuals.csv", horizon_rows)
     if summary:
         write_rows(a.output / "coverage_audit.csv", summary)
     (a.output / "run_config.json").write_text(json.dumps({
