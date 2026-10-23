@@ -178,7 +178,11 @@ class SimulatedPerception:
         # Do not infer free space from zero detections, and don't silently
         # forget stale targets as if their occupied space became free.
         blocked = ("stale_tracks_unresolved" if stale else
-                   "uninitialized_or_no_tracks" if not estimates else None)
+                   # A newly visible target without two observations may
+                   # already be a collision risk; valid older tracks must
+                   # not mask it while its velocity remains unknown.
+                   "uninitialized_or_no_tracks"
+                   if withheld or not estimates else None)
         perceived = World(tuple(estimates),
                           road_half_width=truth.road_half_width,
                           goal_x=truth.goal_x,
