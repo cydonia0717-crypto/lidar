@@ -1,0 +1,56 @@
+name: Phase18 tracked-observation shadow contract
+on:
+  push:
+    branches:
+      - feat/perception-shadow-replay-contract
+  pull_request:
+    branches:
+      - feat/phase16-viability-fast-exit
+  workflow_dispatch:
+
+concurrency:
+  group: phase18-shadow-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shadow-observations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pytest -q tests/test_tracked_shadow.py
+      - run: |
+          python -m lidar_sim.tracked_shadow \
+            --input tests/fixtures/tracked_shadow_synthetic.jsonl \
+            --output results/tracked-shadow-synthetic.csv \
+            --max-track-age 0.35 --max-gap 0.5
+      - run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          with Path("results/tracked-shadow-synthetic.csv").open(newline="") as f:
+              rows = list(csv.DictReader(f))
+          assert len(rows) == 4
+          assert rows[0]["status"] in (
+              "evaluated_not_safety_certified",
+              "unsafe_fallback_no_guaranteed_action",
+          )
+          assert rows[1]["status"] in (
+              "evaluated_not_safety_certified",
+              "unsafe_fallback_no_guaranteed_action",
+          )
+          assert rows[2]["status"] == "stale_track_estimates"
+          assert rows[3]["status"] == "no_observed_tracks_unverified_free_space"
+          assert all(row["shadow_only"] == "1" for row in rows)
+          assert not rows[2]["recommended_speed_mps"]
+          assert not rows[3]["recommended_speed_mps"]
+          print("Shadow-only input contract smoke checks passed.")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase18-synthetic-shadow-not-real-lidar
+          path: results/tracked-shadow-synthetic.csv
