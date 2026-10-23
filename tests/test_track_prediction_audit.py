@@ -220,3 +220,74 @@ def test_per_horizon_missing_reference_is_explicit(tmp_path):
     assert all(r["horizon_s"] == 2.0 for r in missing)
     assert all(r["radial_error_m"] == "" for r in missing)
     assert len([r for r in rows if r["status"] == "matched"]) == 4
+
+
+def _segment_unit(ep, split, complete, missing, worst):
+    return {
+        "episode_id": ep, "split": split,
+        "quality_group": "degraded_or_unknown",
+        "prediction_origins": complete+missing,
+        "complete_segments": complete,
+        "incomplete_or_stale_segments": missing,
+        "worst_complete_segment_error_m": worst,
+    }
+
+
+def test_partial_episode_does_not_make_calibration_optimistic():
+    rows = [
+        _segment_unit(f"c{i}", "calibration", 2, 0, .4)
+        for i in range(10)
+    ]
+    # One well-scored origin out of 100 must not be treated as a perfect
+    # calibrated full episode. This was the previous selection-bias bug.
+    rows.append(_segment_unit("partial_cal", "calibration", 1, 99, .01))
+    rows.extend([
+        _segment_unit("t_good", "test", 3, 0, .3),
+        _segment_unit("t_partial", "test", 2, 1, .02),
+        {
+            "episode_id": "t_blind", "split": "test",
+            "quality_group": "no_observed_tracks",
+            "prediction_origins": 0, "complete_segments": 0,
+            "incomplete_or_stale_segments": 0,
+            "worst_complete_segment_error_m": "",
+        },
+    ])
+    results = summarize(rows, .1)
+    assert len(results) == 2
+    for r in results:
+        assert r["calibration_episode_units"] == 10
+        assert r["calibration_incomplete_group_units"] == 1
+        assert r["radius_m"] == pytest.approx(.4)
+        assert r["test_episode_units"] == 2
+        assert r["test_complete_episode_units"] == 1
+        assert r["test_unscored_episode_units"] == 1
+        assert r["test_whole_episode_no_tracks_units"] == 1
+        # Complete-case reporting is 100%, but all-exposure bounds must
+        # reflect one unscorable episode. Do not call it 100% true coverage.
+        assert r["observed_fraction"] == pytest.approx(1)
+        assert r["missing_as_failure_lower_bound"] == pytest.approx(.5)
+        assert r["missing_as_success_upper_bound"] == pytest.approx(1)
+
+
+def test_missing_all_labels_yields_unknown_not_zero_coverage():
+    rows = [
+        _segment_unit(f"c{i}", "calibration", 1, 0, .5)
+        for i in range(9)
+    ] + [_segment_unit("t1", "test", 0, 4, "")]
+    result = summarize(rows, .1)[0]
+    assert result["observed_fraction"] == ""
+    assert result["test_complete_episode_units"] == 0
+    assert result["missing_as_failure_lower_bound"] == 0
+    assert result["missing_as_success_upper_bound"] == 1
+
+
+def test_bad_segment_count_rejected_instead_of_hidden(tmp_path):
+    rows = [
+        _segment_unit(f"c{i}", "calibration", 1, 0, .1)
+        for i in range(9)
+    ]
+    bad = _segment_unit("t1", "test", 1, 0, .1)
+    bad["prediction_origins"] = 2
+    rows.append(bad)
+    with pytest.raises(AuditError, match="inconsistent"):
+        summarize(rows, .1)
