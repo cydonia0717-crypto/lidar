@@ -140,11 +140,17 @@ def evaluate_episode(episode: Episode, horizons: tuple[float, ...],
                      tolerance_s: float, *,
                      good_points: int, max_good_age_s: float,
                      max_track_age_s: float,
-                     horizon_rows: list[dict] | None = None) -> list[dict]:
+                     horizon_rows: list[dict] | None = None,
+                     recording_quality_rows: list[dict] | None = None,
+                     max_gap_s: float = .5) -> list[dict]:
+    if not math.isfinite(max_gap_s) or max_gap_s <= 0:
+        raise AuditError("max_gap_s must be finite and positive")
     labels = load_labels(episode.labels)
     stats = defaultdict(lambda: {"origins": 0, "complete": 0,
                                  "missing": 0, "worst": -math.inf})
     last_time = -math.inf
+    snapshot_count = empty_snapshots = gap_events = 0
+    tracked_origins = stale_origins = unknown_point_count = 0
     for line_no, item in read_snapshots(episode.snapshots):
         try:
             snapshot = parse_snapshot(item, max_age_s=max_track_age_s)
@@ -152,7 +158,15 @@ def evaluate_episode(episode: Episode, horizons: tuple[float, ...],
             raise AuditError(f"{episode.episode_id} line {line_no}: {exc}") from exc
         if snapshot.time_s <= last_time:
             raise AuditError(f"{episode.episode_id}: non-increasing snapshot times")
+        if last_time != -math.inf and snapshot.time_s - last_time > max_gap_s:
+            gap_events += 1
         last_time = snapshot.time_s
+        snapshot_count += 1
+        empty_snapshots += snapshot.track_count == 0
+        tracked_origins += snapshot.track_count
+        stale_origins += len(snapshot.stale_track_ids)
+        unknown_point_count += sum(
+            "point_count" not in track for track in item["tracks"])
         for track, obstacle in zip(item["tracks"], snapshot.world.obstacles):
             group = quality_group(track, snapshot.time_s,
                                   good_points=good_points,
@@ -198,6 +212,22 @@ def evaluate_episode(episode: Episode, horizons: tuple[float, ...],
             else:
                 entry["complete"] += 1
                 entry["worst"] = max(entry["worst"], max(errors))
+    if not snapshot_count:
+        raise AuditError(f"{episode.episode_id}: no snapshot rows")
+    if recording_quality_rows is not None:
+        recording_quality_rows.append({
+            "episode_id": episode.episode_id, "split": episode.split,
+            "snapshots": snapshot_count,
+            "snapshots_without_any_tracks": empty_snapshots,
+            "snapshot_gap_events": gap_events,
+            "observed_track_origins": tracked_origins,
+            "stale_track_origins": stale_origins,
+            "track_origins_without_point_count": unknown_point_count,
+            "complete_track_segments": sum(x["complete"] for x in stats.values()),
+            "unscored_track_segments": sum(x["missing"] for x in stats.values()),
+            "all_snapshot_times_contiguous_under_limit": int(gap_events == 0),
+            "note": "data availability only; unknown targets cannot be counted",
+        })
     rows = []
     for group, values in sorted(stats.items()):
         rows.append({
@@ -345,6 +375,7 @@ def main() -> None:
     p.add_argument("--good-min-points", type=int, default=10)
     p.add_argument("--good-max-age-s", type=float, default=.15)
     p.add_argument("--max-track-age-s", type=float, default=.35)
+    p.add_argument("--max-snapshot-gap-s", type=float, default=.5)
     a = p.parse_args()
     horizons = tuple(float(x) for x in a.horizons.split(","))
     if not horizons or any(not math.isfinite(h) or h <= 0 for h in horizons):
@@ -358,17 +389,23 @@ def main() -> None:
             or not math.isfinite(a.good_max_age_s)
             or a.good_max_age_s < 0
             or not math.isfinite(a.max_track_age_s)
-            or a.max_track_age_s < 0):
+            or a.max_track_age_s < 0
+            or not math.isfinite(a.max_snapshot_gap_s)
+            or a.max_snapshot_gap_s <= 0):
         p.error("invalid matching/quality configuration")
     episodes = load_manifest(a.manifest)
     horizon_rows: list[dict] = []
+    quality_rows: list[dict] = []
     rows = [row for e in episodes for row in evaluate_episode(
         e, horizons, a.reference_tolerance_s,
         good_points=a.good_min_points,
         max_good_age_s=a.good_max_age_s,
-        max_track_age_s=a.max_track_age_s, horizon_rows=horizon_rows)]
+        max_track_age_s=a.max_track_age_s, horizon_rows=horizon_rows,
+        recording_quality_rows=quality_rows,
+        max_gap_s=a.max_snapshot_gap_s)]
     summary = summarize(rows, a.alpha)
     write_rows(a.output / "episode_segment_error.csv", rows)
+    write_rows(a.output / "recording_quality.csv", quality_rows)
     if horizon_rows:
         write_rows(a.output / "per_horizon_residuals.csv", horizon_rows)
     if summary:
@@ -382,6 +419,7 @@ def main() -> None:
         "good_min_points": a.good_min_points,
         "good_max_age_s": a.good_max_age_s,
         "max_track_age_s": a.max_track_age_s,
+        "max_snapshot_gap_s": a.max_snapshot_gap_s,
         "calibration_episodes": sum(e.split == "calibration" for e in episodes),
         "test_episodes": sum(e.split == "test" for e in episodes),
         "note": "empirical segment coverage, not LiDAR-certified or collision guarantee",
