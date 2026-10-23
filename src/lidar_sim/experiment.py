@@ -12,6 +12,7 @@ from .planner import Plan, PlannerConfig, choose_action
 from .world import World, scenario
 from .safety import CommandDelayLine
 from .goal import goal_metrics
+from .simulated_perception import SimulatedPerception
 
 
 @dataclass(frozen=True)
@@ -57,6 +58,11 @@ class Result:
     goal_criterion: str = "x_gate"
     physical_body_offset_m: float = 0.55
     assumed_body_offset_m: float = 0.55
+    # Optional phase18 observation-path telemetry (oracle runs are unchanged).
+    perception_enabled: bool = False
+    perception_blocked_steps: int = 0
+    perception_planned_steps: int = 0
+    perception_detection_events: int = 0
 
     def metrics(self) -> dict:
         return {key: value for key, value in asdict(self).items() if key not in ("trace", "decision_snapshot")}
@@ -65,7 +71,8 @@ class Result:
 def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive",
         *, vehicle: VehicleConfig | None = None, planner: PlannerConfig | None = None,
         config: RunConfig | None = None,
-        world_override: World | None = None) -> Result:
+        world_override: World | None = None,
+        perception: SimulatedPerception | None = None) -> Result:
     vcfg = vehicle or VehicleConfig()
     pcfg = planner or PlannerConfig()
     rcfg = config or RunConfig()
@@ -97,7 +104,13 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
     reached_historical_x_line = reached_pose_gate = False
     final_goal = None
     steps = math.ceil(rcfg.max_time / rcfg.dt)
+    ego_history: list[State] = []
+    perception_blocked_steps = perception_planned_steps = perception_detection_events = 0
     for i in range(steps + 1):
+        if perception is not None:
+            # Historical self poses are revealed to the sensor at capture
+            # time; future ego poses are never available to this provider.
+            ego_history.append(state)
         physical_road = world.road_clearance(state, physical_vehicle)
         physical_obstacle = world.obstacle_clearance(state, physical_vehicle)
         min_clearance = min(min_clearance, physical_road, physical_obstacle)
@@ -128,7 +141,61 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                           "pose_gate_met": int(status["pose_gate_met"]),
                           "command_speed": "", "command_steer": "", "applied_speed": "", "applied_steer": "", "pending_commands": len(actuator.pending), "backup_rejections": "", "unsafe_fallback": "", "fallback_strategy": "", "emergency": ""})
             break
-        plan: Plan = choose_action(state, world, vcfg, pcfg, mode=mode, delay_line=actuator)
+        planner_world = world
+        perception_fields: dict = {}
+        if perception is not None:
+            observed = perception.observe(world, ego_history, dt=rcfg.dt)
+            perception_detection_events += observed.observation_count
+            perception_fields = {
+                "perception_observed_at_s": (
+                    observed.last_capture_time_s
+                    if observed.last_capture_time_s is not None else ""),
+                "perception_detection_events": observed.observation_count,
+                "perception_valid_tracks": observed.valid_tracks,
+                "perception_withheld_tracks": observed.withheld_tracks,
+                "perception_stale_track_ids": "|".join(observed.stale_track_ids),
+                "perception_max_track_age_s": observed.max_valid_age_s,
+                "perception_blocked_reason": observed.blocked_reason or "",
+                # No true target position, velocity or future trajectory
+                # ever appears in the command-producing planner inputs.
+                "perception_source": "causal_estimated_tracks",
+            }
+            if observed.blocked_reason:
+                perception_blocked_steps += 1
+                # Fails closed at the planner interface. Braking is bounded
+                # and can still physically collide; never call it a guarantee.
+                plan = Plan(
+                    Command(0.0, state.steer), [], math.inf, 0, 0, 0.0,
+                    emergency=True, unsafe_fallback=True,
+                    fallback_strategy="perception_untrusted_brake",
+                )
+            else:
+                planner_world = observed.estimated_world
+                perception_planned_steps += 1
+                plan = choose_action(
+                    state, planner_world, vcfg, pcfg, mode=mode,
+                    delay_line=actuator)
+        else:
+            # Unmodified oracle reference path for older phase1-17 results.
+            plan = choose_action(state, world, vcfg, pcfg, mode=mode, delay_line=actuator)
+        if perception is not None:
+            # Evaluation ONLY, deliberately after the command-producing
+            # planner call. These ground-truth errors must never feed back
+            # into planning decisions or rejection thresholds.
+            truth_by_name = {target.name: target for target in world.obstacles}
+            position_errors = []
+            velocity_errors = []
+            for target in observed.estimated_world.obstacles:
+                reference = truth_by_name[target.name]
+                x_ref, y_ref = reference.position(state.time)
+                x_est, y_est = target.position(state.time)
+                position_errors.append(math.hypot(x_est-x_ref, y_est-y_ref))
+                velocity_errors.append(math.hypot(
+                    target.vx-reference.vx, target.vy-reference.vy))
+            perception_fields["perception_eval_mean_position_error_m"] = (
+                sum(position_errors)/len(position_errors) if position_errors else "")
+            perception_fields["perception_eval_mean_velocity_error_mps"] = (
+                sum(velocity_errors)/len(velocity_errors) if velocity_errors else "")
         if decision_snapshot is None and (
                 any(d["status"] != "eligible" for d in plan.diagnostics)
                 or state.x >= world.goal_x * .35):
@@ -173,7 +240,8 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                       "unsafe_fallback": int(plan.unsafe_fallback),
                       "fallback_strategy": plan.fallback_strategy,
                       "emergency": int(plan.emergency),
-                      **plan.cost_parts})
+                      **plan.cost_parts,
+                      **perception_fields})
         actuator.enqueue(state.time, plan.command)
         substeps = actuator.advance_path(state, state.time + rcfg.dt, vcfg,
                                          min(pcfg.safety_dt, rcfg.dt))
@@ -196,7 +264,9 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
                   reached_historical_x_line, reached_pose_gate,
                   final_goal["body_center_y_m"],
                   final_goal["abs_heading_error_deg"], rcfg.goal_criterion,
-                  physical_offset, vcfg.rear_axle_to_body_center_m)
+                  physical_offset, vcfg.rear_axle_to_body_center_m,
+                  perception is not None, perception_blocked_steps,
+                  perception_planned_steps, perception_detection_events)
 
 
 def save_result(result: Result, directory: str | Path) -> tuple[Path, Path]:
