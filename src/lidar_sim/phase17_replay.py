@@ -73,8 +73,13 @@ def compare_rows(reference: list[dict], replayed: list[dict]) -> float:
 
 
 def verify_measured_replay(root: Path, spec: TrialSpec, mode: str,
-                           *, max_time: float = 35.0) -> dict:
-    path = (root / spec.case_id / mode / "measured" /
+                           *, max_time: float = 35.0,
+                           source_policy: str = "measured") -> dict:
+    if source_policy != "measured" and not source_policy.startswith("fixed_"):
+        raise ValueError("source_policy must be measured or fixed_<ms>ms")
+    if "/" in source_policy or ".." in source_policy:
+        raise ValueError("unsafe source policy")
+    path = (root / spec.case_id / mode / source_policy /
             f"{spec.name}_{mode}_{spec.seed}_trace.csv")
     metrics_path = path.with_name(
         f"{spec.name}_{mode}_{spec.seed}_metrics.json")
@@ -115,6 +120,8 @@ def main() -> None:
     parser.add_argument("--stress", default="weak_brake")
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--modes", default="two_stage_viability")
+    parser.add_argument("--source-policy", default="measured",
+                        help="Recorded measured or fixed_<ms>ms policy directory")
     parser.add_argument("--max-time", type=float, default=35.0)
     parser.add_argument("--output", type=Path,
                         default=Path("results/phase17-replay.csv"))
@@ -123,7 +130,8 @@ def main() -> None:
         parser.error("invalid seed/time")
     spec = TrialSpec(args.scenario, args.seed, args.stress)
     rows = [verify_measured_replay(args.root, spec, mode.strip(),
-                                  max_time=args.max_time)
+                                  max_time=args.max_time,
+                                  source_policy=args.source_policy)
             for mode in args.modes.split(",") if mode.strip()]
     if not rows:
         parser.error("empty modes")
