@@ -254,3 +254,20 @@ python -m lidar_sim.tracked_shadow \
 ~~~
 
 详细字段、时间基准、适用限制及真实ROS bag导出计划见 [跟踪数据影子回放接口契约](docs/phase18_perception_contract.md)。**该功能尚未使用真实LiDAR记录，没有闭环成功率；不会发布底盘命令。**
+
+
+### 独立参考标签下的短时预测误差审计（H1，离线）
+
+在 [只读轨迹输入契约](docs/phase18_perception_contract.md) 基础上，
+`lidar_sim.track_prediction_audit` 将跟踪器当时的状态预测到0.5/1.0/2.0秒后，与**单独来源的参考标签**对照，
+按独立采集episode分开校准与测试，记录缺失参考标签，比较统一/分组的整段预测误差半径。
+输入必须包含独立的校准和测试回合，使用 `reference_kind=independent_annotation` 明确来源声明。
+
+~~~bash
+python -m lidar_sim.track_prediction_audit \
+  --manifest /path/to/manifest.csv \
+  --output results/track-prediction-audit
+~~~
+
+查看 [H1评价协议和文件样例](docs/phase18_prediction_error_audit.md)。
+**当前只有合成单元测试，没有真实参考标注和雷达跟踪准确率结论；本模块不会发布ROS控制指令，也未将误差半径作为安全证书。**
