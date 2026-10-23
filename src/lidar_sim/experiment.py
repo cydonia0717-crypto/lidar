@@ -178,6 +178,24 @@ def run(scenario_name: str = "crossing", seed: int = 0, mode: str = "predictive"
         else:
             # Unmodified oracle reference path for older phase1-17 results.
             plan = choose_action(state, world, vcfg, pcfg, mode=mode, delay_line=actuator)
+        if perception is not None:
+            # Evaluation ONLY, deliberately after the command-producing
+            # planner call. These ground-truth errors must never feed back
+            # into planning decisions or rejection thresholds.
+            truth_by_name = {target.name: target for target in world.obstacles}
+            position_errors = []
+            velocity_errors = []
+            for target in observed.estimated_world.obstacles:
+                reference = truth_by_name[target.name]
+                x_ref, y_ref = reference.position(state.time)
+                x_est, y_est = target.position(state.time)
+                position_errors.append(math.hypot(x_est-x_ref, y_est-y_ref))
+                velocity_errors.append(math.hypot(
+                    target.vx-reference.vx, target.vy-reference.vy))
+            perception_fields["perception_eval_mean_position_error_m"] = (
+                sum(position_errors)/len(position_errors) if position_errors else "")
+            perception_fields["perception_eval_mean_velocity_error_mps"] = (
+                sum(velocity_errors)/len(velocity_errors) if velocity_errors else "")
         if decision_snapshot is None and (
                 any(d["status"] != "eligible" for d in plan.diagnostics)
                 or state.x >= world.goal_x * .35):
