@@ -16,9 +16,14 @@ class MovingObstacle:
     vx: float
     vy: float
     radius: float = 0.35
+    # Optional estimate anchor time. Synthetic worlds retain t0=0 and are
+    # exactly backward compatible; large ROS / Unix time values no longer
+    # require subtracting two large floating-point world coordinates.
+    reference_time_s: float = 0.0
 
     def position(self, time: float) -> tuple[float, float]:
-        return self.x0 + self.vx * time, self.y0 + self.vy * time
+        dt = time - self.reference_time_s
+        return self.x0 + self.vx * dt, self.y0 + self.vy * dt
 
 
 @dataclass(frozen=True)
