@@ -1,0 +1,59 @@
+name: Phase18 causal simulated LiDAR observations
+on:
+  push:
+    branches:
+      - feat/phase18-simulated-perception-closed-loop
+  pull_request:
+    branches:
+      - feat/track-prediction-error-audit
+  workflow_dispatch:
+
+concurrency:
+  group: phase18-sensing-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  simulation-observations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev]'
+      - run: python -m pytest -q tests/test_simulated_perception.py tests/test_phase18_sim_eval.py tests/test_tracked_shadow.py tests/test_track_prediction_audit.py
+      - run: |
+          python -m lidar_sim.phase18_sim_eval \
+            --scenarios crossing \
+            --stress nominal \
+            --seed-start 0 --seeds 1 \
+            --modes two_stage_viability \
+            --profiles oracle,clean,noisy,degraded \
+            --max-time 0.4 \
+            --output results/phase18-sensing-smoke
+      - run: |
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          p = Path("results/phase18-sensing-smoke")
+          with (p / "episodes.csv").open(newline="") as f:
+              rows = list(csv.DictReader(f))
+          assert len(rows) == 4
+          assert {r["perception_profile"] for r in rows} == {
+              "oracle", "clean", "noisy", "degraded"}
+          assert {r["case_id"] for r in rows} == {"crossing__nominal__0"}
+          assert {r["mode"] for r in rows} == {"two_stage_viability"}
+          assert all(r["perception_enabled"] == "True"
+                     for r in rows if r["perception_profile"] != "oracle")
+          assert all(r["perception_enabled"] == "False"
+                     for r in rows if r["perception_profile"] == "oracle")
+          assert any(int(r["perception_blocked_steps"]) > 0
+                     for r in rows if r["perception_profile"] != "oracle")
+          assert json.loads((p / "inputs.json").read_text())["max_time"] == .4
+          print("Only synthetic causal-observation smoke output; no actual LiDAR.")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase18-simulated-perception-smoke-not-real-lidar
+          path: results/phase18-sensing-smoke/
