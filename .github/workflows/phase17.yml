@@ -22,7 +22,7 @@ jobs:
         with:
           python-version: '3.11'
       - run: python -m pip install -e '.[dev]'
-      - run: python -m pytest -q tests/test_phase17_delay.py tests/test_phase17_eval.py tests/test_phase17_analysis.py tests/test_phase17_replay.py tests/test_phase17_forensics.py
+      - run: python -m pytest -q tests/test_phase17_delay.py tests/test_phase17_eval.py tests/test_phase17_analysis.py tests/test_phase17_replay.py tests/test_phase17_forensics.py tests/test_phase17_fixed_analysis.py
       - run: python -m lidar_sim.phase17_eval --scenarios two_targets --stress weak_brake --seed-start 1 --seeds 1 --modes two_stage_bodyframe,two_stage_viability --policies none,fixed:80,fixed:160,measured --max-time 35 --output results/phase17-known
       # Broader paired CPU-feedback ablation: same seeds/physics as phase16.
       # Full three-controller pairs are separate from the fixed-lag seed1 sweep.
@@ -38,6 +38,8 @@ jobs:
       # Identical deterministic compute budgets, not algorithm-specific CPU
       # wall time: isolate the influence of controller choice vs scheduling.
       - run: python -m lidar_sim.phase17_eval --scenarios two_targets --stress weak_brake --seed-start 0 --seeds 1 --modes two_stage_bodyframe,two_stage_viability --policies fixed:0,fixed:20,fixed:40,fixed:60,fixed:80,fixed:100,fixed:120,fixed:160 --max-time 35 --output results/phase17-seed0-fixed-sweep
+      - run: python -m lidar_sim.phase17_fixed_analysis --root results/phase17-seed0-fixed-sweep --output results/phase17-fixed-sweep-audit.csv
+      - run: python -m lidar_sim.phase17_replay --root results/phase17-seed0-fixed-sweep --scenario two_targets --stress weak_brake --seed 0 --modes two_stage_viability --source-policy fixed_40ms --output results/phase17-fixed40-replay.csv
       - uses: actions/upload-artifact@v4
         with:
           name: phase17-latency-feedback-output
@@ -50,3 +52,5 @@ jobs:
             results/phase17-seed0-replay.csv
             results/phase17-forensics.csv
             results/phase17-seed0-fixed-sweep/
+            results/phase17-fixed-sweep-audit.csv
+            results/phase17-fixed40-replay.csv
