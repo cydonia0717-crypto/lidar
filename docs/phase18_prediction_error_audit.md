@@ -80,6 +80,7 @@ python -m lidar_sim.track_prediction_audit \
 
 生成：
 - `episode_segment_error.csv`：每段完整/不完整数、每个episode/group最差误差、校准/测试标识；
+- `per_horizon_residuals.csv`：逐预测起点×目标×0.5/1.0/2.0s记录预测值、参考值、径向误差、观测龄期和`matched`/`missing_independent_reference`/`stale_track`标记，便于直接绘制误差随时域变化，并核查缺失是否偏向退化观测；
 - `coverage_audit.csv`：pooled、grouped半径，独立episode计数，留出测试覆盖和缺失率；
 - `run_config.json`：冻结的阈值、预测时域、样本划分与来源声明。
 
