@@ -53,6 +53,37 @@ jobs:
           assert json.loads((p / "inputs.json").read_text())["max_time"] == .4
           print("Only synthetic causal-observation smoke output; no actual LiDAR.")
           PY
+      - run: |
+          python -m lidar_sim.phase18_sim_eval \
+            --scenarios two_targets \
+            --stress weak_brake \
+            --seed-start 0 --seeds 1 \
+            --modes two_stage_bodyframe,two_stage_viability \
+            --profiles oracle,clean,noisy,degraded \
+            --max-time 22 \
+            --output results/phase18-seed0-weak-brake
+      - run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          p = Path('results/phase18-seed0-weak-brake/episodes.csv')
+          with p.open(newline='') as f:
+              rows = list(csv.DictReader(f))
+          assert len(rows) == 8
+          assert len({r['observation_seed'] for r in rows}) == 1
+          assert all(r['perception_enabled'] == 'True'
+                     for r in rows if r['perception_profile'] != 'oracle')
+          assert all(float(r['duration_s']) > 0 for r in rows)
+          print('Single-case diagnostic, not a statistically valid success rate.')
+          for r in rows:
+              print(r['mode'], r['perception_profile'],
+                    r['success'], r['collision'], r['timeout'],
+                    r['perception_blocked_steps'])
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase18-seed0-sensing-weak-brake-synthetic
+          path: results/phase18-seed0-weak-brake/
       - uses: actions/upload-artifact@v4
         with:
           name: phase18-simulated-perception-smoke-not-real-lidar
