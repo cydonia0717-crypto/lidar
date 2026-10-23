@@ -192,7 +192,31 @@ def test_audit_cli_writes_real_summary_columns_without_claiming_lidar(tmp_path, 
     main()
     assert (out / "episode_segment_error.csv").exists()
     assert (out / "coverage_audit.csv").exists()
+    per_horizon = out / "per_horizon_residuals.csv"
+    assert per_horizon.exists()
+    with per_horizon.open(encoding="utf-8", newline="") as f:
+        scores = list(csv.DictReader(f))
+    assert len(scores) == 16*2*3
+    assert all(row["status"] == "matched" for row in scores)
+    assert {float(row["horizon_s"]) for row in scores} == {.5, 1.0, 2.0}
+
     meta = json.loads((out / "run_config.json").read_text(encoding="utf-8"))
     assert meta["calibration_episodes"] == 12
     assert meta["test_episodes"] == 4
     assert "not verified" in meta["reference_kind"]
+
+
+def test_per_horizon_missing_reference_is_explicit(tmp_path):
+    a, b = write_episode(tmp_path, "missing_h", good_error=.1,
+                         poor_error=.2, incomplete=True)
+    rows = []
+    episode = Episode("missing_h", "test", tmp_path / a, tmp_path / b)
+    evaluate_episode(episode, (.5, 1., 2.), .01,
+                     good_points=10, max_good_age_s=.15,
+                     max_track_age_s=.35, horizon_rows=rows)
+    assert len(rows) == 6
+    missing = [r for r in rows if r["status"] == "missing_independent_reference"]
+    assert len(missing) == 2
+    assert all(r["horizon_s"] == 2.0 for r in missing)
+    assert all(r["radial_error_m"] == "" for r in missing)
+    assert len([r for r in rows if r["status"] == "matched"]) == 4
