@@ -100,3 +100,28 @@ python -m lidar_sim.track_prediction_audit \
 如果测试回合包含一段连续遮挡、无目标轨迹或全部未来参考缺失，只计算其余可评分回合的条件覆盖率可能严重乐观。本次采用“**完全可评分回合**”作为统计分母，并在正式报告同时给出上下界、不可评分episode/组数量与整帧无报告轨迹数量。应首先审查数据可用率，再讨论误差半径和安全占据。
 
 计算包络半径时保持开发集/独立测试集的划分和质量分组阈值不变。在样本不足时输出“校准episode不足”，不允许把 `NaN`、空标签或未跟踪状态当成0误差。若实际采集时目标ID切换、不同坐标源标定错误或参考轨迹不独立，**该数据集不得用于支持覆盖率结论**，即便软件CSV格式检查通过。
+
+
+## ROS1 Noetic 实际录包的只读前置检查
+
+在真正把ROS bag转换为上面的`tracks.jsonl`及独立标注CSV之前，先于**装有ROS1 Noetic、能够import rosbag的设备**上执行：
+
+~~~bash
+source /opt/ros/noetic/setup.bash
+python3 -m lidar_sim.rosbag_inventory \
+  --bag /path/to/recording.bag \
+  --output results/rosbag-topic-inventory.csv \
+  --sample-per-topic 25
+~~~
+
+工具只读访问rosbag，用消息元信息列出各topic的ROS消息类型、录制消息数、标称频率、样本header.frame_id、header.stamp、bag接收时戳与header时戳差值，并标记多坐标系或缺失时戳。还生成`rosbag-topic-inventory.json`概览。支持默认ROS1`rosbag` Python包，**仓库普通CI不需要安装ROS**，通过虚拟bag接口测试。
+
+**注意**：这些都是消息开头有限样本的盘点，不是全bag TF校准、丢包率证明、外部参考真值或动态跟踪轨迹导出。工具不会发布ROS控制消息、不会订阅运行中的底盘，不会推测用户bag中的真实topic名称。实际拿到报告后，应按记录下来的`PointCloud2`、`Odometry`、TF、原跟踪器输出、底盘命令时间戳，单独设计正确的导出映射；不得直接把`PoseArray`或`PointCloud2`误当作带完整目标ID/速度的高质量track。
+
+**采集与标注检查表**：
+
+1. 把采集episode的原始bag路径、采集日期、传感器型号/线数/频率、TF树及实际使用坐标框架写入采集表。原历史材料出现过不同线数描述，应以当前实物与录包为准。
+2. 先检查header时间是否单调、与bag记录时间差是否稳定；不能仅凭前25条样本结论宣称全部时钟已同步。
+3. 保留原始独立参考标签的来源和标注版本。不要在同一KF结果上生成“独立真值”文件；有遮挡或目标关联无法确定时标为不可评分。
+4. 校准/测试必须按原始录制会话隔离，而不是随机拆分连续帧。复查空帧、掉跟踪、未来标签缺失与每组实际完整episode数量。
+5. 若只有一段ROS bag、没有独立标签，本阶段可以完成topic盘点和只读影子建议，但**不能测量真实预测误差的覆盖率，更不能验证H1成立**。
