@@ -30,6 +30,11 @@ class PerceptionConfig:
     max_track_age_s: float = 0.35
     minimum_updates: int = 2
     velocity_update_gain: float = 0.5
+    # 'ema' is the phase18 frozen adjacent-difference exponential filter.
+    # 'windowed_ls' estimates velocity by regression on past noisy centers;
+    # neither mode has access to the physical truth velocity.
+    velocity_estimator: str = "ema"
+    regression_window: int = 5
 
     def __post_init__(self) -> None:
         finite_nonnegative = (
@@ -48,6 +53,12 @@ class PerceptionConfig:
             raise ValueError("field_of_view_rad must lie in (0,2pi]")
         if not 0 < self.velocity_update_gain <= 1:
             raise ValueError("velocity_update_gain must lie in (0,1]")
+        if self.velocity_estimator not in ("ema", "windowed_ls"):
+            raise ValueError("unknown velocity_estimator")
+        if (isinstance(self.regression_window, bool)
+                or not isinstance(self.regression_window, int)
+                or self.regression_window < 2):
+            raise ValueError("regression_window must be an integer >= 2")
         for field in ("capture_delay_ticks", "sensor_every_ticks", "minimum_updates"):
             value = getattr(self, field)
             lower = 0 if field == "capture_delay_ticks" else (
@@ -90,8 +101,32 @@ class SimulatedPerception:
         self.config = config
         self.seed = seed
         self._latest: dict[str, Track] = {}
+        self._detection_history: dict[str, list[tuple[float, float, float]]] = {}
         self._last_capture_tick = -1
         self._last_capture_time: float | None = None
+
+    @staticmethod
+    def _least_squares_velocity(
+            points: list[tuple[float, float, float]]) -> tuple[float, float]:
+        """Centered causal least squares: O(N), stable for large ROS epochs.
+
+        The samples are previously *measured* noisy centers, in arrival order.
+        Using offsets relative to the first observation avoids multiplying
+        large Unix timestamps with positions.
+        """
+        origin = points[0][0]
+        elapsed = [t - origin for t, _, _ in points]
+        mean_t = sum(elapsed) / len(elapsed)
+        spread = sum((t - mean_t) ** 2 for t in elapsed)
+        if spread <= 0:
+            raise ValueError("non-increasing observation timestamps")
+        mx = sum(x for _, x, _ in points) / len(points)
+        my = sum(y for _, _, y in points) / len(points)
+        vx = sum((elapsed[i] - mean_t) * (p[1] - mx)
+                 for i, p in enumerate(points)) / spread
+        vy = sum((elapsed[i] - mean_t) * (p[2] - my)
+                 for i, p in enumerate(points)) / spread
+        return vx, vy
 
     def _rng(self, tick: int, name: str) -> random.Random:
         # Stable regardless of Python hash randomization or planner choices.
@@ -140,22 +175,29 @@ class SimulatedPerception:
                 x = ox + rng.gauss(0, sigma)
                 y = oy + rng.gauss(0, sigma)
                 previous = self._latest.get(obj.name)
+                points = self._detection_history.setdefault(obj.name, [])
+                if previous is not None and t_obs <= previous.observed_time_s:
+                    raise ValueError("observation time not increasing")
+                points.append((t_obs, x, y))
+                if len(points) > cfg.regression_window:
+                    del points[:-cfg.regression_window]
                 if previous is None:
                     vx = vy = 0.0
                     updates = 1
                 else:
-                    elapsed = t_obs - previous.observed_time_s
-                    if elapsed <= 0:
-                        raise ValueError("observation time not increasing")
-                    raw_vx = (x - previous.x_m) / elapsed
-                    raw_vy = (y - previous.y_m) / elapsed
-                    gain = cfg.velocity_update_gain
-                    if previous.updates == 1:
-                        vx, vy = raw_vx, raw_vy
-                    else:
-                        vx = (1 - gain) * previous.vx_mps + gain * raw_vx
-                        vy = (1 - gain) * previous.vy_mps + gain * raw_vy
                     updates = previous.updates + 1
+                    if cfg.velocity_estimator == "windowed_ls":
+                        vx, vy = self._least_squares_velocity(points)
+                    else:
+                        elapsed = t_obs - previous.observed_time_s
+                        raw_vx = (x - previous.x_m) / elapsed
+                        raw_vy = (y - previous.y_m) / elapsed
+                        gain = cfg.velocity_update_gain
+                        if previous.updates == 1:
+                            vx, vy = raw_vx, raw_vy
+                        else:
+                            vx = (1 - gain) * previous.vx_mps + gain * raw_vx
+                            vy = (1 - gain) * previous.vy_mps + gain * raw_vy
                 self._latest[obj.name] = Track(
                     obj.name, t_obs, x, y, vx, vy, obj.radius, updates)
                 captured += 1
