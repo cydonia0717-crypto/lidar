@@ -64,7 +64,9 @@ def test_calibration_only_uses_predeclared_simulator_seed_split():
     assert len(result["calibration_case_ids"]) == 9
     assert result["scored_horizons_s"] == [0.5, 1.0, 2.0]
     assert set(result["profiles"]) == {"noisy_ls5", "degraded_ls5"}
-    for p in result["profiles"].values():
+    for name, p in result["profiles"].items():
+        assert p["offline_source_profile"] == name.removesuffix("_ls5")
+        assert p["offline_estimator_field"] == "ls5_cv_position_error_m"
         assert p["calibration_episode_units"] == 9
         assert p["scored_horizon_observations"] > 0
         assert math.isfinite(p["extra_radius_m"])
