@@ -1,0 +1,65 @@
+name: Phase18 simulation prediction envelope ablation
+on:
+  push:
+    branches:
+      - feat/phase18-prediction-envelope-ablation
+  pull_request:
+    branches:
+      - feat/phase18-causal-velocity-ablation
+  workflow_dispatch:
+
+concurrency:
+  group: phase18-envelope-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  envelope-ablation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev]'
+      - name: Envelope isolation and calibration fail-closed unit tests
+        run: python -m pytest -q tests/test_phase18_envelope_eval.py tests/test_phase18_velocity_filters.py tests/test_simulated_perception.py tests/test_phase18_sim_eval.py
+      - name: Disjoint offline calibration and multi-seed closed-loop test
+        run: |
+          python -m lidar_sim.phase18_envelope_eval \
+            --scenario two_targets --stress weak_brake \
+            --calib-start 10 --calib-seeds 10 \
+            --test-start 60 --test-seeds 4 \
+            --dt 0.1 --ticks 161 --max-time 22 \
+            --output results/phase18-envelope-seeds60-63
+      - name: Fail on inconsistent denominators or leaked reference episodes
+        run: |
+          python - <<'PY'
+          import csv, json, math
+          from pathlib import Path
+          root = Path("results/phase18-envelope-seeds60-63")
+          with (root/"episodes.csv").open(newline="") as f:
+              rows = list(csv.DictReader(f))
+          with (root/"paired.csv").open(newline="") as f:
+              pairs = list(csv.DictReader(f))
+          cal = json.loads((root/"calibration.json").read_text())
+          assert len(rows) == len(pairs) == 24
+          assert {r["seed"] for r in rows} == {"60", "61", "62", "63"}
+          assert {r["sensor_profile"] for r in rows} == {"noisy_ls5", "degraded_ls5"}
+          assert {r["policy"] for r in rows} == {
+              "none", "fixed_030", "offline_q90_2s"}
+          assert not set(r["case_id"] for r in rows) & set(cal["calibration_case_ids"])
+          assert len(cal["calibration_case_ids"]) == 10
+          for profile in ("noisy_ls5", "degraded_ls5"):
+              assert cal["profiles"][profile]["calibration_episode_units"] == 10
+              assert math.isfinite(cal["profiles"][profile]["extra_radius_m"])
+          for row in rows:
+              assert row["perception_enabled"] == "True"
+              assert row["success"] in {"True", "False"}
+              assert row["collision"] in {"True", "False"}
+          print("24 paired-truth simulation episodes preserved; do not assume any win.")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase18-envelope-independent-seeds60-63-synthetic
+          path: results/phase18-envelope-seeds60-63/
