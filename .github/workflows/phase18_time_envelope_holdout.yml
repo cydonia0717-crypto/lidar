@@ -3,6 +3,9 @@ on:
   push:
     branches:
       - feat/phase18-time-dependent-occupancy
+  pull_request:
+    branches:
+      - feat/phase18-prediction-envelope-ablation
   workflow_dispatch:
 
 concurrency:
