@@ -20,6 +20,52 @@ class MovingObstacle:
     # exactly backward compatible; large ROS / Unix time values no longer
     # require subtracting two large floating-point world coordinates.
     reference_time_s: float = 0.0
+    # Optional planning-only time-indexed extra occupancy. The anchor is the
+    # CURRENT decision instant (not the target's last observation stamp).
+    # Truth objects have no schedule and retain their historical exact radius.
+    envelope_anchor_s: float | None = None
+    envelope_horizons_s: tuple[float, ...] = ()
+    envelope_padding_m: tuple[float, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.envelope_horizons_s and not self.envelope_padding_m:
+            if self.envelope_anchor_s is not None:
+                raise ValueError("envelope anchor without a schedule")
+            return
+        if (self.envelope_anchor_s is None
+                or not math.isfinite(self.envelope_anchor_s)):
+            raise ValueError("finite envelope anchor required")
+        if (not self.envelope_horizons_s
+                or len(self.envelope_horizons_s) != len(self.envelope_padding_m)
+                or self.envelope_horizons_s[0] != 0):
+            raise ValueError("envelope must start at h=0 with matching nodes")
+        last = -math.inf
+        for h, extra in zip(self.envelope_horizons_s, self.envelope_padding_m):
+            if (not math.isfinite(h) or h <= last or
+                    not math.isfinite(extra) or extra < 0):
+                raise ValueError("invalid envelope time nodes or extra radius")
+            last = h
+
+    def radius_at(self, time: float) -> float:
+        """Physical base radius + piecewise-linear PLANNING extra radius.
+
+        Interpolation uses time since the current planning decision. Before
+        the anchor it uses the first extra radius; beyond final node it holds
+        the last one. No extrapolated coverage guarantee is implied.
+        """
+        if not self.envelope_horizons_s:
+            return self.radius
+        age = max(0.0, time-self.envelope_anchor_s)
+        nodes = self.envelope_horizons_s
+        values = self.envelope_padding_m
+        if age <= 0:
+            return self.radius + values[0]
+        for index in range(1, len(nodes)):
+            if age <= nodes[index]:
+                fraction = (age - nodes[index-1])/(nodes[index]-nodes[index-1])
+                extra = values[index-1]+fraction*(values[index]-values[index-1])
+                return self.radius + extra
+        return self.radius + values[-1]
 
     def position(self, time: float) -> tuple[float, float]:
         dt = time - self.reference_time_s
@@ -53,7 +99,7 @@ class World:
         center_x, center_y = car.body_center(state)
         return min(math.hypot(center_x - obs.position(t)[0],
                               center_y - obs.position(t)[1])
-                   - car.collision_radius - obs.radius for obs in self.obstacles)
+                   - car.collision_radius - obs.radius_at(t) for obs in self.obstacles)
 
     def physical_clearance(self, state: State, car: VehicleConfig) -> float:
         return min(self.road_clearance(state, car), self.obstacle_clearance(state, car))
