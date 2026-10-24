@@ -1,0 +1,74 @@
+name: Phase18 simulation time-dependent occupancy envelopes
+on:
+  push:
+    branches:
+      - feat/phase18-time-dependent-occupancy
+  pull_request:
+    branches:
+      - feat/phase18-prediction-envelope-ablation
+  workflow_dispatch:
+
+concurrency:
+  group: phase18-time-occupancy-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  time-dependent-envelopes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev]'
+      - name: Check time interpolation, truth isolation and historic simulation regression
+        run: |
+          python -m pytest -q \
+            tests/test_phase18_time_envelope.py \
+            tests/test_phase18_envelope_eval.py \
+            tests/test_simulated_perception.py \
+            tests/test_phase18_sim_eval.py \
+            tests/test_phase18_velocity_filters.py
+      - name: Fixed independent-seed 32-episode ablation
+        run: |
+          python -m lidar_sim.phase18_time_envelope_eval \
+            --scenario two_targets --stress weak_brake \
+            --calib-start 10 --calib-seeds 10 \
+            --test-start 60 --test-seeds 4 \
+            --dt 0.1 --ticks 161 --max-time 22 \
+            --output results/phase18-time-envelope-60-63
+      - name: Assert calibration/test split, original physical outcomes, and complete policy matrix
+        run: |
+          python - <<'PY'
+          import csv, json, math
+          from pathlib import Path
+          root = Path("results/phase18-time-envelope-60-63")
+          with (root/"episodes.csv").open(newline="") as f:
+              rows = list(csv.DictReader(f))
+          with (root/"paired.csv").open(newline="") as f:
+              paired = list(csv.DictReader(f))
+          cal = json.loads((root/"calibration_by_horizon.json").read_text())
+          assert len(rows) == len(paired) == 32
+          assert {r["seed"] for r in rows} == {"60","61","62","63"}
+          assert {r["policy"] for r in rows} == {
+              "none","fixed_030","time_ramp","time_q90"}
+          assert {r["sensor_profile"] for r in rows} == {
+              "noisy_ls5","degraded_ls5"}
+          assert not {r["case_id"] for r in rows} & set(cal["calibration_case_ids"])
+          assert len(cal["calibration_case_ids"]) == 10
+          assert all(row["perception_enabled"] == "True" for row in rows)
+          for profile in ("noisy_ls5","degraded_ls5"):
+              schedule = cal["profiles"][profile]["padding_m"]
+              assert len(schedule) == 4
+              assert all(math.isfinite(x) and x >= 0 for x in schedule)
+              assert schedule[0] <= schedule[1] <= schedule[2] <= schedule[3]
+          assert all(r["collision"] in ("True","False") for r in rows)
+          assert all(r["success"] in ("True","False") for r in rows)
+          print("32 synthetic robot rollouts recorded with exact independent case split.")
+          print("No claim of real LiDAR performance or calibrated full-horizon safety.")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase18-time-envelope-seeds60-63-synthetic
+          path: results/phase18-time-envelope-60-63/
