@@ -1,0 +1,102 @@
+name: Phase18 causal velocity-filter ablation
+on:
+  push:
+    branches:
+      - feat/phase18-causal-velocity-ablation
+  pull_request:
+    branches:
+      - feat/phase18-simulated-perception-closed-loop
+  workflow_dispatch:
+
+concurrency:
+  group: phase18-velocity-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  velocity-ablation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev]'
+      - name: Causal estimator and matched-score tests
+        run: python -m pytest -q tests/test_phase18_velocity_filters.py tests/test_phase18_velocity_analysis.py tests/test_simulated_perception.py tests/test_phase18_sim_eval.py tests/test_phase18_velocity_offline.py
+      - name: Developer failure case (not a held-out trial)
+        run: |
+          python -m lidar_sim.phase18_sim_eval \
+            --scenarios two_targets --stress weak_brake \
+            --seed-start 0 --seeds 1 \
+            --modes two_stage_viability \
+            --profiles noisy,noisy_ls5,degraded,degraded_ls5 \
+            --max-time 22 --output results/velocity-dev-seed0
+          python -m lidar_sim.phase18_velocity_analysis \
+            --root results/velocity-dev-seed0 \
+            --output results/velocity-dev-pairs.csv
+      - name: Predeclared independent simulator seeds (no tuning on outputs)
+        run: |
+          python -m lidar_sim.phase18_sim_eval \
+            --scenarios two_targets --stress weak_brake \
+            --seed-start 50 --seeds 4 \
+            --modes two_stage_viability \
+            --profiles noisy,noisy_ls5,degraded,degraded_ls5 \
+            --max-time 22 --output results/velocity-validation-50-53
+          python -m lidar_sim.phase18_velocity_analysis \
+            --root results/velocity-validation-50-53 \
+            --output results/velocity-validation-pairs.csv
+      - name: Fixed identical-detection estimator accuracy (not a robot rollout)
+        run: |
+          python -m lidar_sim.phase18_velocity_offline \
+            --scenarios two_targets --stress weak_brake \
+            --seed-start 50 --seeds 4 --ticks 161 --dt 0.1 \
+            --output results/velocity-fixed-ego-50-53
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          path = Path('results/velocity-fixed-ego-50-53/fixed_ego_pairs.csv')
+          with path.open(newline='') as f:
+              rows = list(csv.DictReader(f))
+          assert len(rows) == 8
+          assert all(int(r['scored_track_ticks_both']) > 0 for r in rows)
+          assert {r['seed'] for r in rows} == {'50','51','52','53'}
+          print('Fixed same-detection residuals recorded without optimizer input.')
+          PY
+      - name: Verify recorded paired comparison, never assume LS wins
+        run: |
+          python - <<'PY'
+          import csv
+          from pathlib import Path
+          with Path('results/velocity-dev-pairs.csv').open(newline='') as f:
+              dev = list(csv.DictReader(f))
+          with Path('results/velocity-validation-pairs.csv').open(newline='') as f:
+              test = list(csv.DictReader(f))
+          assert len(dev) == 2 and len(test) == 8
+          assert {r['seed'] for r in dev} == {'0'}
+          assert {r['seed'] for r in test} == {'50','51','52','53'}
+          for r in test + dev:
+              assert r['reference_profile'] in {'noisy','degraded'}
+              assert r['candidate_profile'] == r['reference_profile']+'_ls5'
+              assert int(r['reference_perception_planned_steps']) >= 0
+              assert int(r['candidate_perception_planned_steps']) >= 0
+              assert float(r['reference_min_clearance_m']) == float(
+                  r['reference_min_clearance_m'])
+          print('Passed paired-trace checks. Not a safety or statistical proof.')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase18-causal-velocity-dev-seed0
+          path: |
+            results/velocity-dev-seed0/
+            results/velocity-dev-pairs.csv
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase18-causal-velocity-fixed-ego-50-53
+          path: results/velocity-fixed-ego-50-53/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase18-causal-velocity-validation-50-53
+          path: |
+            results/velocity-validation-50-53/
+            results/velocity-validation-pairs.csv

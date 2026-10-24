@@ -25,10 +25,17 @@ PROFILES: dict[str, PerceptionConfig | None] = {
         position_sigma_m=0.0, range_sigma_per_m=0.0,
         dropout_probability=0.0, capture_delay_ticks=0),
     "noisy": PerceptionConfig(),
+    "noisy_ls5": PerceptionConfig(
+        velocity_estimator="windowed_ls", regression_window=5),
     "degraded": PerceptionConfig(
         position_sigma_m=.16, range_sigma_per_m=.01,
         dropout_probability=.25, capture_delay_ticks=2,
         max_track_age_s=.35),
+    "degraded_ls5": PerceptionConfig(
+        position_sigma_m=.16, range_sigma_per_m=.01,
+        dropout_probability=.25, capture_delay_ticks=2,
+        max_track_age_s=.35,
+        velocity_estimator="windowed_ls", regression_window=5),
 }
 
 
@@ -92,7 +99,7 @@ def run_study(specs: list[TrialSpec], *, modes: tuple[str, ...],
         "profiles": {p: (asdict(PROFILES[p]) if PROFILES[p] is not None
                           else "exact oracle target truth") for p in profiles},
         "max_time": max_time,
-        "sensor_model": "center detections and causal finite-difference velocities",
+        "sensor_model": "2D center detections and causal EMA or windowed least-squares velocity",
         "model_limitations": [
             "no PointCloud2 or beam ray-casting",
             "oracle persistent object association, no ID switching",
