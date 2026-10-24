@@ -1,0 +1,57 @@
+name: Phase18 unseen-seed time-ramp holdout
+on:
+  push:
+    branches:
+      - feat/phase18-time-dependent-occupancy
+  workflow_dispatch:
+
+concurrency:
+  group: phase18-unseen-holdout-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  frozen-eight-seeds:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install -e '.[dev]'
+      - name: Check time-envelope interface
+        run: |
+          python -m pytest -q tests/test_phase18_time_envelope.py
+      - name: Frozen 8 unseen cases / 2 sensor conditions / 2 strategies
+        run: |
+          python -m lidar_sim.phase18_time_envelope_holdout \
+            --max-time 22 \
+            --output results/phase18-time-envelope-holdout-90-97
+      - name: Strict dataset and non-imputed physical outcome validation
+        run: |
+          python - <<'PY'
+          import csv,json
+          from pathlib import Path
+          p=Path('results/phase18-time-envelope-holdout-90-97')
+          with (p/'episodes.csv').open(newline='') as f:
+              rows=list(csv.DictReader(f))
+          with (p/'paired.csv').open(newline='') as f:
+              paired=list(csv.DictReader(f))
+          cal=json.loads((p/'calibration_by_horizon.json').read_text())
+          assert len(rows)==len(paired)==32
+          assert {r['seed'] for r in rows} == {
+              str(x) for x in range(90,98)}
+          assert {r['policy'] for r in rows} == {'none','time_ramp'}
+          assert {r['sensor_profile'] for r in rows} == {
+              'noisy_ls5','degraded_ls5'}
+          assert not {r['case_id'] for r in rows} & set(cal['calibration_case_ids'])
+          for r in rows:
+              assert r['collision'] in ('True','False')
+              assert r['success'] in ('True','False')
+              assert r['timeout'] in ('True','False')
+          print('Frozen new seed90-97 outcomes recorded, regardless of winners.')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: phase18-previously-unseen-seeds90-97
+          path: results/phase18-time-envelope-holdout-90-97/
