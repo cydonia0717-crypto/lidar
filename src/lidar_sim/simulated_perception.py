@@ -96,7 +96,9 @@ class SimulatedPerception:
     """Seeded per-episode tracker; create a fresh instance for each rollout."""
 
     def __init__(self, config: PerceptionConfig, seed: int, *,
-                 obstacle_padding_m: float = 0.0):
+                 obstacle_padding_m: float = 0.0,
+                 time_padding_horizons_s: tuple[float, ...] = (),
+                 time_padding_values_m: tuple[float, ...] = ()):
         if isinstance(seed, bool) or not isinstance(seed, int):
             raise ValueError("seed must be an integer")
         if (isinstance(obstacle_padding_m, bool)
@@ -108,6 +110,15 @@ class SimulatedPerception:
         self.seed = seed
         # Applied ONLY to the estimated planning World, never the true plant.
         self.obstacle_padding_m = float(obstacle_padding_m)
+        if time_padding_horizons_s or time_padding_values_m:
+            if self.obstacle_padding_m != 0:
+                raise ValueError("static and time-varying envelope are exclusive")
+            # Use the same exhaustive checks as the actual World obstacle.
+            MovingObstacle("__validate__", 0, 0, 0, 0, .1, 0.,
+                           0., tuple(time_padding_horizons_s),
+                           tuple(time_padding_values_m))
+        self.time_padding_horizons_s = tuple(time_padding_horizons_s)
+        self.time_padding_values_m = tuple(time_padding_values_m)
         self._latest: dict[str, Track] = {}
         self._detection_history: dict[str, list[tuple[float, float, float]]] = {}
         self._last_capture_tick = -1
@@ -225,7 +236,10 @@ class SimulatedPerception:
             estimates.append(MovingObstacle(
                 name, track.x_m, track.y_m, track.vx_mps, track.vy_mps,
                 track.radius_m + self.obstacle_padding_m,
-                track.observed_time_s))
+                track.observed_time_s,
+                now if self.time_padding_horizons_s else None,
+                self.time_padding_horizons_s,
+                self.time_padding_values_m))
         # Do not infer free space from zero detections, and don't silently
         # forget stale targets as if their occupied space became free.
         blocked = ("stale_tracks_unresolved" if stale else
