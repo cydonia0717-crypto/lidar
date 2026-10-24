@@ -34,7 +34,7 @@ def first_violation_kind(path: list[State], world: World,
             ox, oy = target.position(s.time)
             cx, cy = vehicle.body_center(s)
             if math.hypot(cx - ox, cy - oy) < (
-                    vehicle.collision_radius + target.radius
+                    vehicle.collision_radius + target.radius_at(s.time)
                     + world.safety_margin + padding):
                 return "obstacle"
     raise ValueError("no violation on trajectory: check caller's padding/model")

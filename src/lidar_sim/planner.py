@@ -65,7 +65,7 @@ def collision_free(trajectory: list[State], world: World, vehicle: VehicleConfig
             ox, oy = obs.position(s.time if predict else trajectory[0].time)
             cx, cy = vehicle.body_center(s)
             dist = math.hypot(cx - ox, cy - oy)
-            if dist < vehicle.collision_radius + obs.radius + world.safety_margin + padding:
+            if dist < vehicle.collision_radius + obs.radius_at(s.time) + world.safety_margin + padding:
                 return False
     return True
 
