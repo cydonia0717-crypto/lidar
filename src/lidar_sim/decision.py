@@ -59,7 +59,7 @@ def trajectory_cost_breakdown(path: list[State], command: Command, start: State,
             ox, oy = obs.position(s.time if predict else fixed_time)
             cx, cy = vehicle.body_center(s)
             dist = (math.hypot(cx - ox, cy - oy) - vehicle.collision_radius -
-                    obs.radius - world.safety_margin - padding)
+                    obs.radius_at(s.time) - world.safety_margin - padding)
             free = min(free, dist)
         proximity += max(0.0, cfg.clearance_target_m - free) ** 2
     clearance = cfg.clearance_weight * proximity / len(path)
