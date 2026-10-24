@@ -95,11 +95,19 @@ class PerceptionFrame:
 class SimulatedPerception:
     """Seeded per-episode tracker; create a fresh instance for each rollout."""
 
-    def __init__(self, config: PerceptionConfig, seed: int):
+    def __init__(self, config: PerceptionConfig, seed: int, *,
+                 obstacle_padding_m: float = 0.0):
         if isinstance(seed, bool) or not isinstance(seed, int):
             raise ValueError("seed must be an integer")
+        if (isinstance(obstacle_padding_m, bool)
+                or not isinstance(obstacle_padding_m, (int, float))
+                or not math.isfinite(obstacle_padding_m)
+                or obstacle_padding_m < 0):
+            raise ValueError("obstacle_padding_m must be finite and nonnegative")
         self.config = config
         self.seed = seed
+        # Applied ONLY to the estimated planning World, never the true plant.
+        self.obstacle_padding_m = float(obstacle_padding_m)
         self._latest: dict[str, Track] = {}
         self._detection_history: dict[str, list[tuple[float, float, float]]] = {}
         self._last_capture_tick = -1
@@ -216,7 +224,8 @@ class SimulatedPerception:
             ages.append(age)
             estimates.append(MovingObstacle(
                 name, track.x_m, track.y_m, track.vx_mps, track.vy_mps,
-                track.radius_m, track.observed_time_s))
+                track.radius_m + self.obstacle_padding_m,
+                track.observed_time_s))
         # Do not infer free space from zero detections, and don't silently
         # forget stale targets as if their occupied space became free.
         blocked = ("stale_tracks_unresolved" if stale else
