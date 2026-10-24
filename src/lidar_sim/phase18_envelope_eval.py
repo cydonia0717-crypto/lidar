@@ -62,10 +62,14 @@ def calibrate(specs: list[TrialSpec], *, ticks: int = 161,
         "profiles": {},
     }
     for profile in SENSOR_PROFILES:
+        # phase18_velocity_offline scores LS5 under the BASE observation
+        # profile name (noisy/degraded), not the LS5 planner profile name.
+        # Both estimator variants see the exact same original detections.
+        source_profile = profile.removesuffix("_ls5")
         grouped: dict[str, list[float]] = {case: [] for case in cases}
         count: dict[str, int] = {case: 0 for case in cases}
         for row in residuals:
-            if row["sensor_profile"] != profile:
+            if row["sensor_profile"] != source_profile:
                 continue
             case = row["case_id"]
             if case not in grouped:
@@ -81,6 +85,8 @@ def calibrate(specs: list[TrialSpec], *, ticks: int = 161,
             "calibration_episode_units": len(cases),
             "scored_horizon_observations": sum(count.values()),
             "episode_max_residual_m": maxima,
+            "offline_source_profile": source_profile,
+            "offline_estimator_field": "ls5_cv_position_error_m",
             "method": "episode-max of all scored 0.5/1/2s CV center residuals",
             "not_formal_coverage": True,
         }
