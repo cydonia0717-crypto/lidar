@@ -1,0 +1,61 @@
+name: DRA-MPPI upstream CPU module audit
+
+on:
+  push:
+    branches: [research/dra-mppi-cloud]
+    paths: ['research/dra_mppi/**', '.github/workflows/dra-mppi-upstream.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dra-mppi-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  upstream-cpu:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fetch the pinned original implementation
+        uses: actions/checkout@v4
+        with:
+          repository: KhMustafa/dra-mppi
+          ref: 6d76ab2878c503121544b992c0e5706c6c6dece0
+          path: _upstream/dra-mppi
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: research/dra_mppi/requirements-cpu.txt
+      - name: Install CPU dependencies
+        run: |
+          mkdir -p results/dra-mppi
+          python -m pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r research/dra_mppi/requirements-cpu.txt
+          python -m pip freeze > results/dra-mppi/pip-freeze.txt
+      - name: Execute upstream modules and independent references
+        run: |
+          python research/dra_mppi/run_upstream_audit.py --upstream _upstream/dra-mppi --output results/dra-mppi 2>&1 | tee results/dra-mppi/execution.log
+      - name: Publish scope and findings
+        if: always()
+        run: |
+          if [ -f results/dra-mppi/summary.md ]; then cat results/dra-mppi/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f results/dra-mppi/failure.txt ]; then cat results/dra-mppi/failure.txt >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Save raw diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dra-mppi-upstream-cpu-${{ github.sha }}
+          path: results/dra-mppi/
+          if-no-files-found: warn
+          retention-days: 30
