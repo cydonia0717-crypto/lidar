@@ -14,6 +14,9 @@ def truth(name, anchor, branch, t):
     if name=='stop': v[0][1]-=.9*h
     if name=='accelerate': v[0][1]+=.9*h
     if name=='turn': v[0][1]-=.9*h;v[0][0]-=.9*h
+    if name=='smooth_turn':
+        z=h*h/1.2 if h<.6 else h-.3
+        v[0][1]-=.9*z;v[0][0]-=.9*z
     if name=='reverse':v[0][1]-=1.8*h
     if name=='mode_branch':v[0][0]+=branch*.9*h
     if name=='correlated':v[0][0]+=.4*h;v[1]=[v[0][0]+.8,v[0][1]+.4]

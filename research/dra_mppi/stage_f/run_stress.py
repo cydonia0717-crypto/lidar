@@ -41,6 +41,10 @@ class ScriptedWorld:
         if self.scenario == 'turn':
             out[...,0,1] -= .9*after
             out[...,0,0] -= .9*after
+        if self.scenario == 'smooth_turn':
+            transition=np.where(after<.6,after**2/1.2,after-.3)
+            out[...,0,1] -= .9*transition
+            out[...,0,0] -= .9*transition
         if self.scenario == 'reverse': out[...,0,1] -= 1.8*after
         if self.scenario == 'mode_branch': out[...,0,0] += self.branch*.9*after
         if self.scenario == 'correlated':
@@ -197,13 +201,19 @@ def main():
                 variants += [(m,'ols5') for m in protocol['methods']]
                 if name in ['noise_under','heavy_tail']:
                     variants += [(m,'cv_sigma08') for m in protocol['methods'] if m!='mean']
+            if protocol.get('timed_controls') and name!='smooth_turn':
+                variants += [(m,pred) for m in protocol['methods'] for pred in ['budget_small_20ms','budget_regular_20ms']]
+            if name=='smooth_turn':
+                variants += [(m,'ols5') for m in protocol['methods']]
             if name in protocol['oracle_diagnostics']: variants.append(('event_cdf','oracle_future'))
             for method,predictor in variants:
                 sigma=(.05 if name=='noise_under' else (.8 if name=='noise_over' else .3)) if predictor!='cv_sigma08' else .8
                 identity=f'{name}_{seed}_{method}_{predictor}'
                 state=np.zeros(6); times=[]; out='timeout'; mingap=math.inf; waiting=0
                 mu,_,_=predict(history,0.,20,.2)
-                planner,obs,cfg=assemble(method,mu,sigma,seed)
+                K,MC=(32,512) if predictor=='budget_small_20ms' else (64,2048)
+                planner,obs,cfg=assemble(method,mu,sigma,seed,K=K,MC=MC)
+                last_u=np.zeros(2)
                 for step in range(int(protocol['deadline']/.2)):
                     now=round(step*.2,8)
                     mu,age,prior=predict(history,now,20,.2,ols=predictor=='ols5')
@@ -212,9 +222,13 @@ def main():
                     start=time.perf_counter();sequence,samples,costs=planner.command(torch.tensor(state,dtype=torch.float32));elapsed=time.perf_counter()-start
                     assert torch.isfinite(sequence).all() and torch.isfinite(costs).all()
                     controls=sequence.detach().numpy().astype(float)
-                    u=np.clip(controls[0],[0,-1],[2,1]); future=rollout(state,controls,.2)
+                    raw_controls=controls.copy()
+                    late=predictor.startswith('budget_') and elapsed>.020
+                    u=last_u.copy() if late else np.clip(controls[0],[0,-1],[2,1])
+                    last_u=u.copy();controls[0]=u
+                    future=rollout(state,controls,.2)
                     cdf=model_risks(future[:,:2],mu,sigma)
-                    source=original_risk(mu,future[:,:2],sigma,900000+step)
+                    source=original_risk(mu,future[:,:2],sigma,900000+step,MC)
                     sample_risk=model_risks(samples.detach().numpy(),mu[None],sigma)
                     sample_safe=int((sample_risk.max(axis=1)<=.05).sum())
                     true_future=world.positions(now+(np.arange(20)+1)*.2)
@@ -222,14 +236,14 @@ def main():
                     node,lower,truth_end=interval_event(world,state,u,now,.2)
                     mingap=min(mingap,node);waiting+=.2 if u[0]<.05 else 0.
                     row=dict(episode=identity,scenario=name,seed=seed,method=method,predictor=predictor,step=step,time=now,
-                        age=age,startup_prior=prior,cpu_ms=elapsed*1000,source_risk_max=float(source.max()),cdf_risk_max=float(cdf.max()),
+                        age=age,startup_prior=prior,cpu_ms=elapsed*1000,deadline_missed=late,K=K,MC=MC,source_risk_max=float(source.max()),cdf_risk_max=float(cdf.max()),
                         source_next=float(source[0]),cdf_next=float(cdf[0]),sample_safe_count=sample_safe,
                         output_risk_exceeds_threshold=bool(cdf.max()>.05),safe_samples_unsafe_output=bool(sample_safe and cdf.max()>.05),
                         interval_node_gap=node,interval_lower_gap=lower,next_node_contact=bool(np.linalg.norm(future[0,:2]-truth_end,axis=1).min()<=.625),
                         physical_contact=node<=0,future_openloop_node_gap=float(future_gap.min()),
-                        model_truth_rmse=float(np.sqrt(np.mean((mu-true_future)**2))),clipped=bool(np.max(abs(u-controls[0]))>1e-6))
+                        model_truth_rmse=float(np.sqrt(np.mean((mu-true_future)**2))),clipped=bool(np.max(abs(u-raw_controls[0]))>1e-6))
                     rows.append(row); times.append(elapsed*1000)
-                    detail.write(json.dumps(dict(**row,state=state.tolist(),raw_controls=controls.tolist(),applied=u.tolist(),
+                    detail.write(json.dumps(dict(**row,state=state.tolist(),raw_controls=raw_controls.tolist(),applied=u.tolist(),
                         observed_stamp=(now-age),predicted_means=mu.tolist(),sigma=sigma,oracle_truth_future=true_future.tolist(),
                         evaluated_output_xy=future[:,:2].tolist(),source_risk=source.tolist(),event_cdf=cdf.tolist(),truth_at_end=truth_end.tolist()))+'\n')
                     state=exact_unicycle(state,u,.2)

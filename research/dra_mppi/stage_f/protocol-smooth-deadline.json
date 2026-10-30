@@ -1,0 +1,11 @@
+{
+  "stage": "F-smooth-deadline", "status": "frozen_before_execution",
+  "baseline": "d252bcf", "upstream": "6d76ab2878c503121544b992c0e5706c6c6dece0",
+  "seeds": [101,202,303], "methods": ["mean","dra","event_cdf"],
+  "scenarios": ["cv","turn","smooth_turn"], "deadline": 16.0,
+  "oracle_diagnostics": ["smooth_turn"], "skip_budget_snapshots": true,
+  "timed_controls": true,
+  "smooth_turn": "Linearly change velocity from(0,0.9)to(-0.9,0)over0.6s starting1.4s; bounded acceleration magnitude2.122m/s^2; continuous position/velocity. Controls CV,OLS5,oracle diagnostic.",
+  "compute_policy": "For cv/turn, compare original untimed K64MC2048 with20ms command admission deadline for K64MC2048 andK32MC512. If command returns late, hold last applied command for this0.2s tick(start atzero). All elapsed calls logged. No preemption: this is common control-output deadline, NOT equal actual CPU consumed or hardware real-time proof. Diagnostics excluded from command timer; all methods same admission rule. Runtime-dependent outcomes are profiling diagnostics.",
+  "scope": "Known-case development only; old CV trajectories retained; no new algorithm."
+}
