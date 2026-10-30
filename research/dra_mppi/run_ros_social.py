@@ -104,11 +104,14 @@ def main():
         x = torch.tensor([o.pose.position.x for o in predictions.obstacles], dtype=torch.float32)
         y = torch.tensor([o.pose.position.y for o in predictions.obstacles], dtype=torch.float32)
         return cls(cfg, x, y, torch.zeros(n), torch.eye(2).repeat(n, 1, 1)*.3, torch.zeros(n), torch.zeros(n))
-    def gaps(state, observations):
+    def gaps(state, observations, predictions=None):
         positions = np.array([[o.pose.position.x, o.pose.position.y] for o in observations.objects])
+        all_ped = float(np.linalg.norm(positions-state[:2], axis=1).min()-.625) if len(positions) else float('inf')
+        if protocol and protocol.get('collision_population') == 'author_active_predictions':
+            positions = np.array([[o.pose.position.x, o.pose.position.y] for o in predictions.obstacles])
         ped = float(np.linalg.norm(positions-state[:2], axis=1).min()-.625) if len(positions) else float('inf')
         wall = float(3.5-abs(state[1])-.325)
-        return ped, wall
+        return ped, wall, all_ped
     if protocol:
         from social_comparison import make_objective_class, ExactBatchUnicycle, output_wall_audit, self_check
         probe_spline = TorchSpline2D(SimpleNamespace(x=[0., 15., 30., 45., 60.], y=[0.]*5), device='cpu')
@@ -119,7 +122,9 @@ def main():
                    'simulation_time_s': 0., 'min_sampled_ped_gap_m': float('inf'),
                    'min_sampled_wall_gap_m': float('inf'), 'raw_controls_clipped': 0,
                    'K': variant['K'], 'T': 20, 'N_mc': 2048, 'input_target_counts': [],
-                   'path_length_m': 0., 'waiting_time_s': 0., 'collision_type': None}
+                   'path_length_m': 0., 'waiting_time_s': 0., 'collision_type': None,
+                   'min_all_observed_ped_gap_m': float('inf'), 'first_all_observed_contact_s': None,
+                   'all_observed_contact_samples': 0}
         solve_times = []
         node = None
         state = np.zeros(6)
@@ -213,7 +218,12 @@ def main():
                     response = step(pose(state))
                     assert response.fresh
                     simtime += .05
-                    pg, wg = gaps(state, response.observations)
+                    pg, wg, all_pg = gaps(state, response.observations, response.predictions)
+                    episode['min_all_observed_ped_gap_m'] = min(episode['min_all_observed_ped_gap_m'], all_pg)
+                    if all_pg <= 0:
+                        episode['all_observed_contact_samples'] += 1
+                        if episode['first_all_observed_contact_s'] is None:
+                            episode['first_all_observed_contact_s'] = simtime
                     episode['min_sampled_ped_gap_m'] = min(episode['min_sampled_ped_gap_m'], pg)
                     episode['min_sampled_wall_gap_m'] = min(episode['min_sampled_wall_gap_m'], wg)
                     for ob in response.observations.objects:
