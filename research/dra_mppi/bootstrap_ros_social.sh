@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 set -eo pipefail
 export DEBIAN_FRONTEND=noninteractive
-OUT=/workspace/results/dra-mppi-stage-c
+STAGE=${1:-c}
+case "$STAGE" in c|d) ;; *) exit 2 ;; esac
+OUT=/workspace/results/dra-mppi-stage-$STAGE
 mkdir -p "$OUT"
 apt-get update
 apt-get install -y --no-install-recommends build-essential git python3-pip python3-dev python3-yaml libeigen3-dev clang libc++-dev libc++abi-dev \
@@ -23,4 +25,8 @@ roscore > "$OUT/roscore.log" 2>&1 &
 ROSCORE_PID=$!
 trap 'kill "$ROSCORE_PID" 2>/dev/null || true' EXIT
 sleep 3
-python3 /workspace/research/dra_mppi/run_ros_social.py --upstream /workspace/_upstream/dra-mppi --output "$OUT" 2>&1 | tee "$OUT/social.log"
+if [ "$STAGE" = d ]; then
+  python3 /workspace/research/dra_mppi/run_ros_social.py --upstream /workspace/_upstream/dra-mppi --output "$OUT" --protocol /workspace/research/dra_mppi/protocol-stage-d.json 2>&1 | tee "$OUT/social.log"
+else
+  python3 /workspace/research/dra_mppi/run_ros_social.py --upstream /workspace/_upstream/dra-mppi --output "$OUT" 2>&1 | tee "$OUT/social.log"
+fi

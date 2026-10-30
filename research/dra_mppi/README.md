@@ -62,3 +62,13 @@ This remains an explicit compatibility adaptation: the ego plant is a bounded ex
 4. Select an extension only after failures are repeatable and simple/strong controls cannot explain an improvement.
 
 This workflow intentionally does not launch the author's privileged development container or connect to physical actuators.
+
+## Stage D: frozen development comparison and failure diagnostics
+
+`protocol-stage-d.json` declares 12 paired development episodes (mean-only vs DRA, 4/8/12 people, base seeds5/17), plus6 known-case diagnostics: no-wall for all three populations, and no-filter / K128 / exact-arc prediction for8 people at seed5. It is frozen before execution. These are not unseen validation trials.
+
+Both main methods share K64/T20, the same exact unicycle plant, explicit output limits, and a20000 finite wall penalty at |y|>=3.175m. DRA additionally uses MC2048. Same candidate counts do not mean equal wall-clock budgets. CPU solve times are measured with the world paused.
+
+The deterministic mean-only adapter follows the paper's baseline description, but its unpublished exact weights are unavailable. It uses20000 per predicted step if any mean is within0.825m, and keeps the author's goal/path/speed costs, Halton sampler, MPPI update and output filter. It must not be labelled the author's exact Vanilla MPPI reproduction. The original DRA risk expression is retained.
+
+The harness verifies paired initial observation/prediction hashes, checks the adapters with independent fixtures, records per-episode wall/pedestrian collision types, path length and waiting, and audits the unfiltered/filtered averaged output against exact-arc wall margins without consuming planner RNG state. Finite penalties, weighted outputs and sampled collision checks do not guarantee safety. No compatibility repair or pre-existing exact arc integration is claimed as a research contribution.
