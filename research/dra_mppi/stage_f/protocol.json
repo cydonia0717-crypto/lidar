@@ -1,0 +1,15 @@
+{
+  "stage": "F", "status": "frozen_before_execution", "baseline": "d252bcf",
+  "upstream": "6d76ab2878c503121544b992c0e5706c6c6dece0",
+  "seeds": [101, 202, 303], "methods": ["mean", "dra", "event_cdf"],
+  "scenarios": ["cv", "stop", "accelerate", "turn", "reverse", "noise_under", "noise_over", "delay", "dropout", "heavy_tail", "mode_branch", "correlated"],
+  "K": 64, "T": 20, "MC": 2048, "dt": 0.2, "deadline": 16.0,
+  "goal_line": 6.0, "goal_y_tolerance": 1.0, "physical_radius": 0.625,
+  "planning_radius": 0.825, "wall_halfwidth": 3.5,
+  "oracle_diagnostics": ["stop", "turn", "delay", "dropout"],
+  "world": "Scripted continuous piecewise-linear target trajectories, exogenous and identical across methods; five persistent entities, no ROS. Not paper-table replication or Ackermann.",
+  "observation": "Pre-generated timestamped position packets every0.2s; CV finite-difference velocity; only received packet history accessible. Noise streams independent from planner RNG. Oracle future supplied only in separately labelled diagnostics.",
+  "risk_event": "Per-future-time independent isotropic Gaussian disk event, not whole-mission probability. Actual scripted realization is deterministic conditional on scenario seed. Calibration against the finite scripted ensemble is descriptive, not a distribution-free guarantee.",
+  "budget": "F3 one-factor snapshot sweeps with5 independent planner seeds. Closed loops are equal candidate budgets, not equal runtime. Deadline5/20/50ms snapshot rejection is separate from closed-loop outcomes.",
+  "claim": "Mechanism diagnostics and independent strong baselines only; no new algorithm claim; all cases development, no held-out navigation claim."
+}

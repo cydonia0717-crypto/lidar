@@ -1,0 +1,67 @@
+{
+  "stage_e_commit": "d252bcfdc13f47dd7de8e109f82663ecb44c0844",
+  "run_id": 41002729726,
+  "episodes": 18,
+  "frames": 11947,
+  "prediction_observation_frames_independently_matched": 2975,
+  "initial_frames_not_in_csv": 18,
+  "outcomes": {
+    "mean": {
+      "success": 5,
+      "collision": 1,
+      "timeout": 0
+    },
+    "dra": {
+      "success": 4,
+      "collision": 2,
+      "timeout": 0
+    },
+    "event_cdf": {
+      "success": 5,
+      "collision": 1,
+      "timeout": 0
+    }
+  },
+  "physical_identity_assertion_every_world_step_reported_by_runner": true,
+  "scope": "Independent replay at recorded20Hz frames; prediction identity replay at recorded5Hz excluding initial. Not continuous collision verification or future-model calibration.",
+  "sha256": {
+    "adapter_self_check.json": "05b5034da7854f88b0bf4d3d87655ebb370833c713aa4140ee63c68604dded38",
+    "bootstrap.log": "5ed01cf3a0428b5c28297dd2efefcc651b8d0c5ab55aa304190f3fced4acdfef",
+    "build.log": "77f4824d50e44f139add3d4e535597afca62b433b787df70c514c8a3a8f21a91",
+    "build_compatibility.json": "0739df55389147b1217f44c153d09f519f03874e4aac338a170d9970dfc885a9",
+    "build_compatibility.patch": "79458f681ae926f4b8224ec00d6043e05b0ecad23d8becf86a9d330199472e31",
+    "container-image.json": "30f985bba821db9be89461d6d67b1bafcd80a689ece7a2e3ca82fe831dfa586d",
+    "dpkg-packages.txt": "9769f942f6067095e96fc04aaf89b82ffee73d3bb9620199543e8e9f2cfccbe7",
+    "frozen_protocol.json": "898fc42fd9ff03046393871b6a216e80e3bb39df7282d52cdeb29acf2184eaa8",
+    "input_contracts.json": "d7d454939c513140a72fbd21df10d9cfa54d23dc568fdea7ac95485699e5b3db",
+    "physical_population.json": "200c83328163808ed5c8702ac2734e913ef5c2b6fc49a50d102e3430e0b46248",
+    "physical_population.patch": "fc1fc1af432d3babb4448f677f517845853e253d3570f9260e7590363a730834",
+    "pip-freeze.txt": "8cab2aebec5faab2c2f11995c114e29325f5c49e8e0d1308948d2ee765f0836b",
+    "roscore.log": "edffc13bb467b8b47dd56698e4a82e42fe16289920929a0fe4e992dd96bca291",
+    "runtime_compatibility.patch": "02fb67f24c55709cd843c4f4da16cb4abb8f21f45029075d2fa3d8beb02fd967",
+    "simulator_dra_physical_n12_s17.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_dra_physical_n12_s5.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_dra_physical_n4_s17.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_dra_physical_n4_s5.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_dra_physical_n8_s17.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_dra_physical_n8_s5.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_event_cdf_physical_n12_s17.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_event_cdf_physical_n12_s5.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_event_cdf_physical_n4_s17.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_event_cdf_physical_n4_s5.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_event_cdf_physical_n8_s17.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_event_cdf_physical_n8_s5.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_mean_physical_n12_s17.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_mean_physical_n12_s5.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_mean_physical_n4_s17.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_mean_physical_n4_s5.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_mean_physical_n8_s17.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "simulator_mean_physical_n8_s5.log": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "social.log": "f8941c92964f7d83427e82feab6e1166b3ac537de16577f2c3e78664a8dc4072",
+    "social_controls.csv": "7391c4e854d4391f7e658ea29fe80e8fea7ad6eb0e6f7672c59266347ae5cc71",
+    "social_episodes.json": "b11b326e84da38cb5a388c4fae2d3fd699a07717d0e619878566387c22f6c83c",
+    "social_observations.csv": "5f80168fc92944f83d86024f2a3626d54781532fea89e078a907e7b2b704b160",
+    "social_predictions.jsonl": "8836dbd868ffceae18a02b4ab3953f576610285cd4f5ff7c2489aa59ad262b98",
+    "social_results.json": "d5816d66fc66083bcefc502c77fd95ab018f4c795bac749dc3cfdf86a3ee3e0e"
+  }
+}
