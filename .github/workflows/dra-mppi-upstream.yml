@@ -59,3 +59,52 @@ jobs:
           path: results/dra-mppi/
           if-no-files-found: warn
           retention-days: 30
+
+  probability-and-controller:
+    needs: upstream-cpu
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: KhMustafa/dra-mppi
+          ref: 6d76ab2878c503121544b992c0e5706c6c6dece0
+          path: _upstream/dra-mppi
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: research/dra_mppi/requirements-cpu.txt
+      - name: Install CPU numerical dependencies
+        run: |
+          mkdir -p results/dra-mppi-stage-b
+          python -m pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r research/dra_mppi/requirements-cpu.txt
+      - name: Cross-check event probability with independent methods
+        run: |
+          python research/dra_mppi/crosscheck_risk.py --upstream _upstream/dra-mppi --output results/dra-mppi-stage-b 2>&1 | tee results/dra-mppi-stage-b/risk.log
+      - name: Build the original Halton sampler dependency
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang libc++-dev libc++abi-dev
+          CC=clang CXX=clang++ python -m pip install ghalton==0.6.1
+          python -m pip freeze > results/dra-mppi-stage-b/pip-freeze.txt
+      - name: Run unmodified MPPI controller in custom headless smoke cases
+        run: |
+          python research/dra_mppi/run_controller_smoke.py --upstream _upstream/dra-mppi --output results/dra-mppi-stage-b 2>&1 | tee results/dra-mppi-stage-b/controller.log
+      - name: Save raw stage B results even if execution fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dra-mppi-stage-b-${{ github.sha }}
+          path: results/dra-mppi-stage-b/
+          if-no-files-found: warn
+          retention-days: 30
