@@ -151,7 +151,7 @@ def main():
             value=super().compute_running_cost(state,t,action,**kw)
             return value+(state[...,1].abs()>=3.175).float()*20000.
 
-    def assemble(method,mu,sigma,seed,K=64,T=20,MC=2048):
+    def assemble(method,mu,sigma,seed,K=64,T=20,MC=2048,exact=False):
         np.random.seed(seed); torch.manual_seed(seed)
         cfg=copy.deepcopy(base); cfg['mppi'].update(num_samples=K,horizon=T)
         cfg['obstacles'].update(num_obstacles=mu.shape[1],N_monte_carlo=MC)
@@ -159,7 +159,10 @@ def main():
         obs=Obstacles(cfg,torch.tensor(mu[0,:,0]),torch.tensor(mu[0,:,1]),torch.zeros(mu.shape[1]),factor,torch.zeros(mu.shape[1]),torch.zeros(mu.shape[1]))
         spline=TorchSpline2D(SimpleNamespace(x=[0.,2.,4.,6.,8.],y=[0.]*5),device='cpu')
         objective=Objective(cfg,dyn_obstacles=obs,spline=spline);objective.method=method;objective.sigma=sigma
-        dyn=JackalDynamics(cfg)
+        if exact:
+            from social_comparison import ExactBatchUnicycle
+            dyn=ExactBatchUnicycle(cfg)
+        else: dyn=JackalDynamics(cfg)
         planner=MPPIPlanner(cfg['mppi'],nx=6,dynamics=dyn.step,running_cost=objective.compute)
         return planner,obs,cfg
 
@@ -203,8 +206,11 @@ def main():
                     variants += [(m,'cv_sigma08') for m in protocol['methods'] if m!='mean']
             if protocol.get('timed_controls') and name!='smooth_turn':
                 variants += [(m,pred) for m in protocol['methods'] for pred in ['budget_small_20ms','budget_regular_20ms']]
-            if name=='smooth_turn':
+            if name=='smooth_turn' and not protocol.get('exact_model_controls'):
                 variants += [(m,'ols5') for m in protocol['methods']]
+            if protocol.get('exact_model_controls'):
+                variants += [(m,'exact_dynamics') for m in protocol['methods']]
+                variants += [(m,'cv_sigma08') for m in protocol['methods'] if m!='mean']
             if name in protocol['oracle_diagnostics']: variants.append(('event_cdf','oracle_future'))
             for method,predictor in variants:
                 sigma=(.05 if name=='noise_under' else (.8 if name=='noise_over' else .3)) if predictor!='cv_sigma08' else .8
@@ -212,7 +218,7 @@ def main():
                 state=np.zeros(6); times=[]; out='timeout'; mingap=math.inf; waiting=0
                 mu,_,_=predict(history,0.,20,.2)
                 K,MC=(32,512) if predictor=='budget_small_20ms' else (64,2048)
-                planner,obs,cfg=assemble(method,mu,sigma,seed,K=K,MC=MC)
+                planner,obs,cfg=assemble(method,mu,sigma,seed,K=K,MC=MC,exact=predictor=='exact_dynamics')
                 last_u=np.zeros(2)
                 for step in range(int(protocol['deadline']/.2)):
                     now=round(step*.2,8)

@@ -36,10 +36,10 @@ jobs:
           python -m pip install -r research/dra_mppi/requirements-cpu.txt
           CC=clang CXX=clang++ python -m pip install ghalton==0.6.1
           python -m pip freeze > results/stage-f/pip-freeze.txt
-      - name: Execute smooth-turn and common command-deadline diagnostics
+      - name: Execute exact-model and fixed-inflation controls
         run: |
           set -eo pipefail
-          python research/dra_mppi/stage_f/run_stress.py --upstream _upstream/dra-mppi --output results/stage-f --protocol research/dra_mppi/stage_f/protocol-smooth-deadline.json 2>&1 | tee results/stage-f/execution.log
+          python research/dra_mppi/stage_f/run_stress.py --upstream _upstream/dra-mppi --output results/stage-f --protocol research/dra_mppi/stage_f/protocol-exact-model.json 2>&1 | tee results/stage-f/execution.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

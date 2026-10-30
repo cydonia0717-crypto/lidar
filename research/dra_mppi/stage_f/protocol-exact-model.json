@@ -1,0 +1,9 @@
+{
+  "stage": "F-exact-model-control", "status": "frozen_before_execution",
+  "baseline": "d252bcf", "upstream": "6d76ab2878c503121544b992c0e5706c6c6dece0",
+  "seeds": [101,202,303], "methods": ["mean","dra","event_cdf"],
+  "scenarios": ["smooth_turn"], "deadline": 16.0,
+  "oracle_diagnostics": ["smooth_turn"], "skip_budget_snapshots": true,
+  "exact_model_controls": true,
+  "scope": "Known-case followup, not holdout: original dynamics vs already independently verified exact-arc batch dynamics, same exact-arc plant. Also fixed sigma0.8 strong control and oracle future diagnostic. No new algorithm or novelty claim."
+}
