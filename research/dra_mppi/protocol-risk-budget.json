@@ -1,0 +1,57 @@
+{
+  "stage": "E-risk",
+  "status": "frozen_before_execution",
+  "author_sha": "6d76ab2878c503121544b992c0e5706c6c6dece0",
+  "threshold": 0.05,
+  "radius": 0.825,
+  "family_alpha": 0.05,
+  "budgets": [
+    512,
+    2048,
+    8192,
+    20000
+  ],
+  "reference_levels": [
+    0.005,
+    0.02,
+    0.04,
+    0.049,
+    0.051,
+    0.06,
+    0.1,
+    0.2
+  ],
+  "repeats": 20,
+  "sampling_seed": 701,
+  "fixture_splits": {
+    "development": {
+      "counts": [
+        1,
+        4,
+        8,
+        12
+      ],
+      "sigmas": [
+        0.3,
+        0.6
+      ],
+      "geometry_seed": 601
+    },
+    "constructed_holdout": {
+      "counts": [
+        2,
+        6,
+        10
+      ],
+      "sigmas": [
+        0.35,
+        0.55
+      ],
+      "geometry_seed": 1601
+    }
+  },
+  "confidence": "Exact Clopper-Pearson intervals, alpha/K for fixed look; alpha/(K*4) for all four looks. Shared draws across8 fixed queries; optional stopping only at declared looks. Not a navigation or model-calibration guarantee.",
+  "promotion_gate": "Development: zero false-safe; unresolved fraction at most fixedCP20000+0.02; mean batch time at most0.8*fixedCP20000. Vehicle promotion additionally requires benefit beyond deployable analytic CDF and non-analytic prediction validation; neither may be assumed.",
+  "holdout_policy": "All inputs/configurations frozen before execution; constructed unseen parameter combinations only, not unseen maps. Gate uses development only; holdout results cannot tune parameters.",
+  "new_algorithm_claim": false
+}

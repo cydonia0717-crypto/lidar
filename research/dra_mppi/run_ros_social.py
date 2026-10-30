@@ -112,6 +112,13 @@ def main():
         ped = float(np.linalg.norm(positions-state[:2], axis=1).min()-.625) if len(positions) else float('inf')
         wall = float(3.5-abs(state[1])-.325)
         return ped, wall, all_ped
+    def check_physical_population(response):
+        if not protocol or protocol.get('collision_population')!='physical_all':
+            return
+        observed={int(ob.id):np.array([ob.pose.position.x,ob.pose.position.y]) for ob in response.observations.objects}
+        predicted={int(ob.id):np.array([ob.pose.position.x,ob.pose.position.y]) for ob in response.predictions.obstacles}
+        assert set(observed)==set(predicted), 'Physical objects and prediction IDs differ'
+        assert all(np.linalg.norm(observed[k]-predicted[k])<1e-9 for k in observed), 'Physical/prediction positions differ'
     if protocol:
         from social_comparison import make_objective_class, ExactBatchUnicycle, output_wall_audit, self_check
         probe_spline = TorchSpline2D(SimpleNamespace(x=[0., 15., 30., 45., 60.], y=[0.]*5), device='cpu')
@@ -143,6 +150,7 @@ def main():
             step = rospy.ServiceProxy('/dra_repro/step', Step, persistent=True)
             response = step(pose(state))
             assert response.fresh
+            check_physical_population(response)
             assert len(response.predictions.obstacles) == count
             horizon = len(response.predictions.obstacles[0].gaussians[0].mean.poses)
             cfg = copy.deepcopy(base)
@@ -217,6 +225,7 @@ def main():
                     episode['waiting_time_s'] += .05 if action[0] < .05 else 0.
                     response = step(pose(state))
                     assert response.fresh
+                    check_physical_population(response)
                     simtime += .05
                     pg, wg, all_pg = gaps(state, response.observations, response.predictions)
                     episode['min_all_observed_ped_gap_m'] = min(episode['min_all_observed_ped_gap_m'], all_pg)
@@ -281,8 +290,10 @@ def main():
         for seed in protocol['main_seeds']:
             for n in protocol['counts']:
                 pair = [e for e in episodes if e['variant']['role']=='main' and e['seed']==seed and e['initial_targets']==n]
-                assert len(pair)==2 and len({e['initial_input_sha256'] for e in pair})==1, 'Paired initial inputs differ'
+                expected_methods=protocol.get('methods',['mean','dra'])
+                assert len(pair)==len(expected_methods) and {e['variant']['method'] for e in pair}==set(expected_methods) and len({e['initial_input_sha256'] for e in pair})==1, 'Paired initial inputs differ'
         result['paired_initial_inputs_verified'] = True
+        result['physical_population_verified_every_world_step'] = protocol.get('collision_population')=='physical_all' and not any(e['outcome']=='execution_error' for e in episodes)
     (a.output/'social_results.json').write_text(json.dumps(result, indent=2))
     print('SOCIAL_SUMMARY '+json.dumps(result['outcomes']), flush=True)
     if any(e['outcome']=='execution_error' for e in episodes):

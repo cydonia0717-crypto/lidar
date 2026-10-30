@@ -1,0 +1,228 @@
+{
+  "stage": "E-physical",
+  "status": "frozen_before_execution",
+  "author_sha": "6d76ab2878c503121544b992c0e5706c6c6dece0",
+  "main_seeds": [
+    5,
+    17
+  ],
+  "counts": [
+    4,
+    8,
+    12
+  ],
+  "methods": [
+    "mean",
+    "dra",
+    "event_cdf"
+  ],
+  "episodes": [
+    {
+      "id": "mean_physical_n4_s5",
+      "count": 4,
+      "seed": 5,
+      "method": "mean",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "dra_physical_n4_s5",
+      "count": 4,
+      "seed": 5,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "event_cdf_physical_n4_s5",
+      "count": 4,
+      "seed": 5,
+      "method": "event_cdf",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "mean_physical_n8_s5",
+      "count": 8,
+      "seed": 5,
+      "method": "mean",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "dra_physical_n8_s5",
+      "count": 8,
+      "seed": 5,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "event_cdf_physical_n8_s5",
+      "count": 8,
+      "seed": 5,
+      "method": "event_cdf",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "mean_physical_n12_s5",
+      "count": 12,
+      "seed": 5,
+      "method": "mean",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "dra_physical_n12_s5",
+      "count": 12,
+      "seed": 5,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "event_cdf_physical_n12_s5",
+      "count": 12,
+      "seed": 5,
+      "method": "event_cdf",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "mean_physical_n4_s17",
+      "count": 4,
+      "seed": 17,
+      "method": "mean",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "dra_physical_n4_s17",
+      "count": 4,
+      "seed": 17,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "event_cdf_physical_n4_s17",
+      "count": 4,
+      "seed": 17,
+      "method": "event_cdf",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "mean_physical_n8_s17",
+      "count": 8,
+      "seed": 17,
+      "method": "mean",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "dra_physical_n8_s17",
+      "count": 8,
+      "seed": 17,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "event_cdf_physical_n8_s17",
+      "count": 8,
+      "seed": 17,
+      "method": "event_cdf",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "mean_physical_n12_s17",
+      "count": 12,
+      "seed": 17,
+      "method": "mean",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "dra_physical_n12_s17",
+      "count": 12,
+      "seed": 17,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "event_cdf_physical_n12_s17",
+      "count": 12,
+      "seed": 17,
+      "method": "event_cdf",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    }
+  ],
+  "collision_population": "physical_all",
+  "lifecycle": "All internally retained physical entities remain in prediction and collision sets, even after done_. Gaussian prediction copy removes only done_ skip; simulator movement unchanged. IDs and current positions checked at every20Hz step.",
+  "legacy_protocol": "Stage D2 author-active protocol remains runnable without retain-completed flag; original source checkout untouched.",
+  "shared_budget": "K64/T20/dt0.2; original DRA MC2048, exact-event CDF baseline no MC. Same candidate count, not equal time.",
+  "outcomes": "All observed physical objects, radius0.625m; scenario wall radius0.325m; collision precedence; x>40m before60s;20Hz sampled. No continuous safety guarantee.",
+  "development_only": true,
+  "held_out": false,
+  "hardware": false,
+  "new_algorithm_claim": false
+}

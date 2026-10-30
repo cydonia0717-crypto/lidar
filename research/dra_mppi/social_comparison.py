@@ -12,6 +12,22 @@ def make_objective_class(parent):
         def calculate_bound_dyn_cost(self, obstacle_modes, obstacle_covs, t=None):
             if self.comparison['method'] == 'dra':
                 return super().calculate_bound_dyn_cost(obstacle_modes, obstacle_covs, t)
+            if self.comparison['method'] == 'event_cdf':
+                from scipy.stats import ncx2
+                # Scope-limited exact baseline: known independent isotropic
+                # Gaussian positions with sigma0.3, matching the common adapter.
+                assert torch.allclose(obstacle_covs, torch.eye(2,device=obstacle_covs.device)*.3)
+                positions=torch.stack((self.x,self.y),dim=-1)
+                if self.x.ndim==2:
+                    delta=positions[:,:,None,:]-obstacle_modes[None,:,:,:]
+                else:
+                    delta=positions[:,None,:]-obstacle_modes[None,:,:]
+                d2=(delta**2).sum(dim=-1).detach().cpu().numpy()
+                import numpy as np
+                individual=ncx2.cdf(.825**2/.3**2,2,d2/.3**2)
+                probability=1-np.prod(1-individual,axis=-1)
+                risk=torch.as_tensor(probability,device=self.x.device,dtype=self.x.dtype)
+                return (risk>self.hard_cp_constraint).to(risk.dtype)*20000.+100.*risk
             # The paper describes mean-only prediction, but does not release exact
             # baseline weights. This is our transparent deterministic adaptation.
             if self.x.ndim == 2:
@@ -100,4 +116,13 @@ def self_check(parent, cfg, spline, exact_step):
         current = exact_step(current, action, cfg['mppi']['dt'])
         expected.append(current)
     assert np.allclose(exact.numpy()[0], expected, atol=1e-12)
-    return {'mean_cost_and_wall_delta': 'passed', 'exact_batch_vs_independent_arc': 'passed'}
+    objective.comparison['method']='event_cdf'
+    objective.x=torch.zeros(2,2)
+    objective.y=torch.zeros(2,2)
+    centers=torch.zeros(2,2,2)
+    cdf_cost=objective.calculate_bound_dyn_cost(centers,torch.eye(2).repeat(2,2,1,1)*.3)
+    single=1-np.exp(-.825**2/(2*.3**2))
+    expected=20000+100*(1-(1-single)**2)
+    assert torch.max(torch.abs(cdf_cost-expected))<.003
+    return {'mean_cost_and_wall_delta': 'passed', 'exact_batch_vs_independent_arc': 'passed',
+            'event_cdf_coincident_independent_targets': 'passed'}

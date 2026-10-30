@@ -113,7 +113,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-  ros-social-comparison:
+  ros-physical-comparison:
     needs: upstream-cpu
     runs-on: ubuntu-22.04
     timeout-minutes: 40
@@ -127,18 +127,60 @@ jobs:
           ref: 6d76ab2878c503121544b992c0e5706c6c6dece0
           path: _upstream/dra-mppi
           persist-credentials: false
-      - name: Compare mean-only and risk-aware MPPI with shared corridor constraints
+      - name: Compare mean-only, original risk and exact-event risk with coherent physical population
         run: |
-          mkdir -p results/dra-mppi-stage-d
+          mkdir -p results/dra-mppi-stage-e
           docker pull ros:noetic-ros-base-focal
-          docker image inspect ros:noetic-ros-base-focal --format '{{json .RepoDigests}}' > results/dra-mppi-stage-d/container-image.json
-          docker run --rm -e OMP_NUM_THREADS=2 -e MKL_NUM_THREADS=2 -e PYTHONUNBUFFERED=1 -v "$PWD":/workspace -w /workspace ros:noetic-ros-base-focal bash research/dra_mppi/bootstrap_ros_social.sh d 2>&1 | tee results/dra-mppi-stage-d/bootstrap.log
-          python -c "import json,pathlib; p=pathlib.Path('results/dra-mppi-stage-d/social_results.json'); d=json.loads(p.read_text()); assert len(d['episodes'])==18 and d['protocol']['collision_population']=='author_active_predictions' and d['paired_initial_inputs_verified'] and all(e['outcome']!='execution_error' for e in d['episodes']); print(d['outcomes'])"
+          docker image inspect ros:noetic-ros-base-focal --format '{{json .RepoDigests}}' > results/dra-mppi-stage-e/container-image.json
+          docker run --rm -e OMP_NUM_THREADS=2 -e MKL_NUM_THREADS=2 -e PYTHONUNBUFFERED=1 -v "$PWD":/workspace -w /workspace ros:noetic-ros-base-focal bash research/dra_mppi/bootstrap_ros_social.sh e 2>&1 | tee results/dra-mppi-stage-e/bootstrap.log
+          python -c "import json,pathlib; p=pathlib.Path('results/dra-mppi-stage-e/social_results.json'); d=json.loads(p.read_text()); assert len(d['episodes'])==18 and d['protocol']['collision_population']=='physical_all' and d['physical_population_verified_every_world_step'] and d['paired_initial_inputs_verified'] and all(e['outcome']!='execution_error' for e in d['episodes']); print(d['outcomes'])"
       - name: Preserve build logs and social traces, including failures
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: dra-mppi-stage-d-${{ github.sha }}
-          path: results/dra-mppi-stage-d/
+          name: dra-mppi-stage-e-${{ github.sha }}
+          path: results/dra-mppi-stage-e/
+          if-no-files-found: warn
+          retention-days: 30
+
+  risk-budget-diagnostics:
+    needs: upstream-cpu
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: KhMustafa/dra-mppi
+          ref: 6d76ab2878c503121544b992c0e5706c6c6dece0
+          path: _upstream/dra-mppi
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: research/dra_mppi/requirements-cpu.txt
+      - name: Install pinned CPU statistical dependencies
+        run: |
+          mkdir -p results/dra-mppi-risk-budget
+          python -m pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r research/dra_mppi/requirements-cpu.txt
+          python -m pip freeze > results/dra-mppi-risk-budget/pip-freeze.txt
+      - name: Run frozen event-risk, fixed and sequential confidence baselines
+        run: |
+          python research/dra_mppi/run_risk_budget.py --upstream _upstream/dra-mppi --output results/dra-mppi-risk-budget --protocol research/dra_mppi/protocol-risk-budget.json 2>&1 | tee results/dra-mppi-risk-budget/execution.log
+          python -c "import json,pathlib; d=json.loads(pathlib.Path('results/dra-mppi-risk-budget/risk_budget_results.json').read_text()); assert d['fixture_banks']==28 and d['unique_queries']==224 and len(d['summaries'])==24; print(d['gate'])"
+      - name: Preserve all risk decisions, unresolved queries and gates
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dra-mppi-risk-budget-${{ github.sha }}
+          path: results/dra-mppi-risk-budget/
           if-no-files-found: warn
           retention-days: 30
