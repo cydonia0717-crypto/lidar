@@ -1,0 +1,34 @@
+{
+  "date": "2026-10-30",
+  "stage": "C",
+  "repository_commit": "f8fecbaf855a4542c43243c76043a317faa3c71a",
+  "upstream_commit": "6d76ab2878c503121544b992c0e5706c6c6dece0",
+  "scenarios": [
+    "random_social/4_corridor.xml",
+    "random_social/8_corridor.xml",
+    "random_social/12_corridor.xml"
+  ],
+  "simulator_seed": 5,
+  "algorithm_seed": 0,
+  "development_or_holdout": "integration development; not held-out",
+  "world_hz": 20,
+  "control_hz": 5,
+  "max_simulation_seconds": 60,
+  "completion": "ego x>40m; collision precedence",
+  "collision_check": "sampled20Hz; pedestrian+ego disk radius0.625m; wall halfwidth3.5m minus ego radius0.325m",
+  "controller": {
+    "K": 64,
+    "T": 20,
+    "N_mc": 2048
+  },
+  "plant": "custom bounded exact unicycle bridge; no Gazebo, Ackermann or solve-delay feedback",
+  "source_preservation": "original checkout retained; isolated message-generation metadata patch and separate dynamic-count risk-module copy",
+  "expected_evidence": [
+    "fresh original ROS predictions and observations",
+    "4/8/12 population contract results",
+    "raw original conversion failures",
+    "applied/source controls",
+    "separate success collision timeout execution_error"
+  ],
+  "run": "https://github.com/cydonia0717-crypto/lidar/actions/runs/40995935834"
+}

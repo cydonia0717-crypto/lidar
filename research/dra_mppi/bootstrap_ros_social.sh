@@ -24,4 +24,3 @@ ROSCORE_PID=$!
 trap 'kill "$ROSCORE_PID" 2>/dev/null || true' EXIT
 sleep 3
 python3 /workspace/research/dra_mppi/run_ros_social.py --upstream /workspace/_upstream/dra-mppi --output "$OUT" 2>&1 | tee "$OUT/social.log"
-
