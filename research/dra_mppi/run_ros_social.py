@@ -211,7 +211,8 @@ def main():
             episode['error'] = traceback.format_exc()
         finally:
             if node is not None:
-                os.killpg(node.pid, signal.SIGTERM)
+                if node.poll() is None:
+                    os.killpg(node.pid, signal.SIGTERM)
                 node.wait(timeout=10)
                 log.close()
                 time.sleep(.5)

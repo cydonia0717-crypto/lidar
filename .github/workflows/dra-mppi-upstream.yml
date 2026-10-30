@@ -9,6 +9,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: dra-mppi-audit-${{ github.ref }}
   cancel-in-progress: true
@@ -129,6 +133,7 @@ jobs:
           docker pull ros:noetic-ros-base-focal
           docker image inspect ros:noetic-ros-base-focal --format '{{json .RepoDigests}}' > results/dra-mppi-stage-c/container-image.json
           docker run --rm -e OMP_NUM_THREADS=2 -e MKL_NUM_THREADS=2 -e PYTHONUNBUFFERED=1 -v "$PWD":/workspace -w /workspace ros:noetic-ros-base-focal bash research/dra_mppi/bootstrap_ros_social.sh 2>&1 | tee results/dra-mppi-stage-c/bootstrap.log
+          python -c "import json,pathlib; p=pathlib.Path('results/dra-mppi-stage-c/social_results.json'); d=json.loads(p.read_text()); assert len(d['episodes'])==3 and all(e['outcome']!='execution_error' for e in d['episodes']); print(d['outcomes'])"
       - name: Preserve build logs and social traces, including failures
         if: always()
         uses: actions/upload-artifact@v4
