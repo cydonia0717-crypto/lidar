@@ -1,0 +1,74 @@
+[
+  {
+    "time": 0.0,
+    "original_next_risk": 0.0,
+    "sampled_model_safe": 45,
+    "best_physical_gap_lower_m": 1.6156989624043208,
+    "choice": {
+      "prefix": [
+        0.0,
+        1.0
+      ],
+      "duration": 1.0,
+      "backup": [
+        1.0,
+        1.0
+      ]
+    },
+    "scope": "375 bounded two-phase sequences;4s/10ms with0.019m between-node bound;future truth diagnostic;not Gaussian risk feasibility or global reachability"
+  },
+  {
+    "time": 1.2,
+    "original_next_risk": 3.347577828072268e-05,
+    "sampled_model_safe": 23,
+    "best_physical_gap_lower_m": 0.4800003423777296,
+    "choice": {
+      "prefix": [
+        0.0,
+        1.0
+      ],
+      "duration": 1.0,
+      "backup": [
+        1.0,
+        1.0
+      ]
+    },
+    "scope": "375 bounded two-phase sequences;4s/10ms with0.019m between-node bound;future truth diagnostic;not Gaussian risk feasibility or global reachability"
+  },
+  {
+    "time": 1.6,
+    "original_next_risk": 0.07746431677726318,
+    "sampled_model_safe": 0,
+    "best_physical_gap_lower_m": 0.018027166412223922,
+    "choice": {
+      "prefix": [
+        0.0,
+        1.0
+      ],
+      "duration": 0.6,
+      "backup": [
+        1.0,
+        1.0
+      ]
+    },
+    "scope": "375 bounded two-phase sequences;4s/10ms with0.019m between-node bound;future truth diagnostic;not Gaussian risk feasibility or global reachability"
+  },
+  {
+    "time": 2.0,
+    "original_next_risk": 0.8091951892322127,
+    "sampled_model_safe": 0,
+    "best_physical_gap_lower_m": -0.14296594044661723,
+    "choice": {
+      "prefix": [
+        0.0,
+        1.0
+      ],
+      "duration": 0.2,
+      "backup": [
+        1.0,
+        1.0
+      ]
+    },
+    "scope": "375 bounded two-phase sequences;4s/10ms with0.019m between-node bound;future truth diagnostic;not Gaussian risk feasibility or global reachability"
+  }
+]

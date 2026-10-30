@@ -1,0 +1,232 @@
+{
+  "stage": "D2",
+  "status": "frozen_before_execution",
+  "author_sha": "6d76ab2878c503121544b992c0e5706c6c6dece0",
+  "main_seeds": [
+    5,
+    17
+  ],
+  "counts": [
+    4,
+    8,
+    12
+  ],
+  "episodes": [
+    {
+      "id": "mean_wall_n4_s5",
+      "count": 4,
+      "seed": 5,
+      "method": "mean",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "dra_wall_n4_s5",
+      "count": 4,
+      "seed": 5,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "mean_wall_n8_s5",
+      "count": 8,
+      "seed": 5,
+      "method": "mean",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "dra_wall_n8_s5",
+      "count": 8,
+      "seed": 5,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "mean_wall_n12_s5",
+      "count": 12,
+      "seed": 5,
+      "method": "mean",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "dra_wall_n12_s5",
+      "count": 12,
+      "seed": 5,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "mean_wall_n4_s17",
+      "count": 4,
+      "seed": 17,
+      "method": "mean",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "dra_wall_n4_s17",
+      "count": 4,
+      "seed": 17,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "mean_wall_n8_s17",
+      "count": 8,
+      "seed": 17,
+      "method": "mean",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "dra_wall_n8_s17",
+      "count": 8,
+      "seed": 17,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "mean_wall_n12_s17",
+      "count": 12,
+      "seed": 17,
+      "method": "mean",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "dra_wall_n12_s17",
+      "count": 12,
+      "seed": 17,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "main"
+    },
+    {
+      "id": "dra_no_wall_n4_s5",
+      "count": 4,
+      "seed": 5,
+      "method": "dra",
+      "wall_cost": false,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "wall_ablation_known_cases"
+    },
+    {
+      "id": "dra_no_wall_n8_s5",
+      "count": 8,
+      "seed": 5,
+      "method": "dra",
+      "wall_cost": false,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "wall_ablation_known_cases"
+    },
+    {
+      "id": "dra_no_wall_n12_s5",
+      "count": 12,
+      "seed": 5,
+      "method": "dra",
+      "wall_cost": false,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "wall_ablation_known_cases"
+    },
+    {
+      "id": "dra_no_filter_n8_s5",
+      "count": 8,
+      "seed": 5,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": false,
+      "K": 64,
+      "exact_prediction": false,
+      "role": "filter_diagnostic_known_case"
+    },
+    {
+      "id": "dra_k128_n8_s5",
+      "count": 8,
+      "seed": 5,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 128,
+      "exact_prediction": false,
+      "role": "budget_diagnostic_known_case"
+    },
+    {
+      "id": "dra_exact_n8_s5",
+      "count": 8,
+      "seed": 5,
+      "method": "dra",
+      "wall_cost": true,
+      "filter_u": true,
+      "K": 64,
+      "exact_prediction": true,
+      "role": "model_diagnostic_known_case"
+    }
+  ],
+  "method_reference": "https://arxiv.org/html/2506.21205v2#S5.SS2",
+  "mean_baseline": "Our deterministic mean-only MPPI adaptation;20000 per time step if any predicted mean within0.825m; no uncertainty soft term. Exact paper baseline weights/code unavailable.",
+  "common_wall": "20000 per predicted time step when |y|>=3.175m; finite penalty, not a safety certificate",
+  "common_actuation": "Raw averaged/filtered outputs clipped v[0,2] and yaw[-1,1]; same exact-unicycle plant",
+  "shared_budget": "K64/T20,0.2s; DRA MC2048. Same candidate budget, not equal CPU-time.",
+  "outcomes": "x>40m within60s;20Hz gap<=0 to active current prediction positions or walls is primary collision; collision precedence; execution errors separate. Raw all-observation contacts separately retained.",
+  "development_only": true,
+  "hardware": false,
+  "held_out": false,
+  "no_tuning": "No reselecting seeds or dropping failures after execution; known seed5 diagnostics are not held-out tests.",
+  "collision_population": "author_active_predictions",
+  "supersedes": "Stage D run40999340073 retained. That checker included all historical observation objects; author ros1_collision_checker instead consumes trajectory_predictions, excluding done_ agents.",
+  "correction_scope": "Same18 variants, costs, seeds, budgets, plant and controller. Only shared primary collision population changed. Raw all-observation gaps/contact times remain reported; contacts are not silently discarded.",
+  "source_contracts": {
+    "active_filter": "pedestrian_simulator.cpp:GetGaussianPredictions skips done_ and renumbers ids",
+    "all_observations": "GetPedestrians includes every internal pedestrian",
+    "author_checker": "ros1_collision_checker_node.cpp subscribes trajectory_predictions"
+  }
+}

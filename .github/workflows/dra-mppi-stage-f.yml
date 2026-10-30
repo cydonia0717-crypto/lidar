@@ -1,0 +1,48 @@
+name: DRA-MPPI Stage F mechanism diagnostics
+on:
+  push:
+    branches: [research/dra-mppi-cloud]
+    paths: ['research/dra_mppi/stage_f/**', '.github/workflows/dra-mppi-stage-f.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scripted-stress:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 35
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: KhMustafa/dra-mppi
+          ref: 6d76ab2878c503121544b992c0e5706c6c6dece0
+          path: _upstream/dra-mppi
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install pinned numerical and author sampler dependencies
+        run: |
+          mkdir -p results/stage-f
+          sudo apt-get update -qq
+          sudo apt-get install -y clang libc++-dev libc++abi-dev
+          python -m pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r research/dra_mppi/requirements-cpu.txt
+          CC=clang CXX=clang++ python -m pip install ghalton==0.6.1
+          python -m pip freeze > results/stage-f/pip-freeze.txt
+      - name: Execute exact-model and fixed-inflation controls
+        run: |
+          set -eo pipefail
+          python research/dra_mppi/stage_f/run_stress.py --upstream _upstream/dra-mppi --output results/stage-f --protocol research/dra_mppi/stage_f/protocol-exact-model.json 2>&1 | tee results/stage-f/execution.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: dra-mppi-stage-f-${{ github.sha }}
+          path: results/stage-f/
+          retention-days: 90

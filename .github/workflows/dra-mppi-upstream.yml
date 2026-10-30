@@ -1,0 +1,186 @@
+name: DRA-MPPI upstream CPU module audit
+
+on:
+  push:
+    branches: [research/dra-mppi-cloud]
+    paths: ['research/dra_mppi/**', '!research/dra_mppi/stage_f/**', '.github/workflows/dra-mppi-upstream.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+concurrency:
+  group: dra-mppi-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  upstream-cpu:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Fetch the pinned original implementation
+        uses: actions/checkout@v4
+        with:
+          repository: KhMustafa/dra-mppi
+          ref: 6d76ab2878c503121544b992c0e5706c6c6dece0
+          path: _upstream/dra-mppi
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: research/dra_mppi/requirements-cpu.txt
+      - name: Install CPU dependencies
+        run: |
+          mkdir -p results/dra-mppi
+          python -m pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r research/dra_mppi/requirements-cpu.txt
+          python -m pip freeze > results/dra-mppi/pip-freeze.txt
+      - name: Execute upstream modules and independent references
+        run: |
+          python research/dra_mppi/run_upstream_audit.py --upstream _upstream/dra-mppi --output results/dra-mppi 2>&1 | tee results/dra-mppi/execution.log
+      - name: Publish scope and findings
+        if: always()
+        run: |
+          if [ -f results/dra-mppi/summary.md ]; then cat results/dra-mppi/summary.md >> "$GITHUB_STEP_SUMMARY"; fi
+          if [ -f results/dra-mppi/failure.txt ]; then cat results/dra-mppi/failure.txt >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Save raw diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dra-mppi-upstream-cpu-${{ github.sha }}
+          path: results/dra-mppi/
+          if-no-files-found: warn
+          retention-days: 30
+
+  probability-and-controller:
+    needs: upstream-cpu
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: KhMustafa/dra-mppi
+          ref: 6d76ab2878c503121544b992c0e5706c6c6dece0
+          path: _upstream/dra-mppi
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: research/dra_mppi/requirements-cpu.txt
+      - name: Install CPU numerical dependencies
+        run: |
+          mkdir -p results/dra-mppi-stage-b
+          python -m pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r research/dra_mppi/requirements-cpu.txt
+      - name: Cross-check event probability with independent methods
+        run: |
+          python research/dra_mppi/crosscheck_risk.py --upstream _upstream/dra-mppi --output results/dra-mppi-stage-b 2>&1 | tee results/dra-mppi-stage-b/risk.log
+      - name: Build the original Halton sampler dependency
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y clang libc++-dev libc++abi-dev
+          CC=clang CXX=clang++ python -m pip install ghalton==0.6.1
+          python -m pip freeze > results/dra-mppi-stage-b/pip-freeze.txt
+      - name: Run unmodified MPPI controller in custom headless smoke cases
+        run: |
+          python research/dra_mppi/run_controller_smoke.py --upstream _upstream/dra-mppi --output results/dra-mppi-stage-b 2>&1 | tee results/dra-mppi-stage-b/controller.log
+      - name: Save raw stage B results even if execution fails
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dra-mppi-stage-b-${{ github.sha }}
+          path: results/dra-mppi-stage-b/
+          if-no-files-found: warn
+          retention-days: 30
+
+  ros-physical-comparison:
+    needs: upstream-cpu
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: KhMustafa/dra-mppi
+          ref: 6d76ab2878c503121544b992c0e5706c6c6dece0
+          path: _upstream/dra-mppi
+          persist-credentials: false
+      - name: Compare mean-only, original risk and exact-event risk with coherent physical population
+        run: |
+          mkdir -p results/dra-mppi-stage-e
+          docker pull ros:noetic-ros-base-focal
+          docker image inspect ros:noetic-ros-base-focal --format '{{json .RepoDigests}}' > results/dra-mppi-stage-e/container-image.json
+          docker run --rm -e OMP_NUM_THREADS=2 -e MKL_NUM_THREADS=2 -e PYTHONUNBUFFERED=1 -v "$PWD":/workspace -w /workspace ros:noetic-ros-base-focal bash research/dra_mppi/bootstrap_ros_social.sh e 2>&1 | tee results/dra-mppi-stage-e/bootstrap.log
+          python -c "import json,pathlib; p=pathlib.Path('results/dra-mppi-stage-e/social_results.json'); d=json.loads(p.read_text()); assert len(d['episodes'])==18 and d['protocol']['collision_population']=='physical_all' and d['physical_population_verified_every_world_step'] and d['paired_initial_inputs_verified'] and all(e['outcome']!='execution_error' for e in d['episodes']); print(d['outcomes'])"
+      - name: Preserve build logs and social traces, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dra-mppi-stage-e-${{ github.sha }}
+          path: results/dra-mppi-stage-e/
+          if-no-files-found: warn
+          retention-days: 30
+
+  risk-budget-diagnostics:
+    needs: upstream-cpu
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    env:
+      OMP_NUM_THREADS: '2'
+      MKL_NUM_THREADS: '2'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: KhMustafa/dra-mppi
+          ref: 6d76ab2878c503121544b992c0e5706c6c6dece0
+          path: _upstream/dra-mppi
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+          cache: pip
+          cache-dependency-path: research/dra_mppi/requirements-cpu.txt
+      - name: Install pinned CPU statistical dependencies
+        run: |
+          mkdir -p results/dra-mppi-risk-budget
+          python -m pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install -r research/dra_mppi/requirements-cpu.txt
+          python -m pip freeze > results/dra-mppi-risk-budget/pip-freeze.txt
+      - name: Run frozen event-risk, fixed and sequential confidence baselines
+        run: |
+          python research/dra_mppi/run_risk_budget.py --upstream _upstream/dra-mppi --output results/dra-mppi-risk-budget --protocol research/dra_mppi/protocol-risk-budget.json 2>&1 | tee results/dra-mppi-risk-budget/execution.log
+          python -c "import json,pathlib; d=json.loads(pathlib.Path('results/dra-mppi-risk-budget/risk_budget_results.json').read_text()); assert d['fixture_banks']==28 and d['unique_queries']==224 and len(d['summaries'])==24; print(d['gate'])"
+      - name: Preserve all risk decisions, unresolved queries and gates
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dra-mppi-risk-budget-${{ github.sha }}
+          path: results/dra-mppi-risk-budget/
+          if-no-files-found: warn
+          retention-days: 30

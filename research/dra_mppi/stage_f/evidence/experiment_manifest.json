@@ -1,0 +1,63 @@
+{
+  "batches": [
+    {
+      "batch": 1,
+      "episodes": 120,
+      "controls": 2916,
+      "terminal_collisions": 21,
+      "outcomes": {
+        "success": 98,
+        "collision": 21,
+        "timeout": 1,
+        "event_unresolved": 0
+      }
+    },
+    {
+      "batch": 2,
+      "episodes": 90,
+      "controls": 2106,
+      "terminal_collisions": 33,
+      "outcomes": {
+        "success": 55,
+        "collision": 33,
+        "timeout": 2,
+        "event_unresolved": 0
+      }
+    },
+    {
+      "batch": 3,
+      "episodes": 75,
+      "controls": 1819,
+      "terminal_collisions": 31,
+      "outcomes": {
+        "success": 38,
+        "collision": 31,
+        "timeout": 6,
+        "event_unresolved": 0
+      }
+    },
+    {
+      "batch": 4,
+      "episodes": 27,
+      "controls": 514,
+      "terminal_collisions": 15,
+      "outcomes": {
+        "success": 12,
+        "collision": 15,
+        "timeout": 0,
+        "event_unresolved": 0
+      }
+    }
+  ],
+  "total_episodes": 312,
+  "unique_episode_configurations": 240,
+  "total_controls": 7355,
+  "raw_archive_sha256": {
+    "stage_e.zip": "c7c60d719c66d96be19e63e8c0210b70cd191470e2b1332c094f47bc431f46a7",
+    "stage_f.zip": "f23fd6e20f0482f8c7d40d530b480b477cb63b1a0bb2a5ae69c211b4c6b07c42",
+    "stage_f_controls.zip": "1ea503f86a89fe5cc6e721e6e619fff7a6212f785853ca775b31e5ece694454e",
+    "stage_f_exact.zip": "1149bdd018b3408d2eac8b7f797989e219a80426faa1b063355186d91be601a5",
+    "stage_f_smooth.zip": "74a71fc7d737d2083c36de67cc4ea033bd528a91929c17f02b4562ad5a240895"
+  },
+  "scope": "Repeated development conditions; not independent maps; raw archives are outside repo output/StageF_20261030 and GitHub artifacts. typical_records is a subset, not all data."
+}
