@@ -3,7 +3,7 @@ name: DRA-MPPI upstream CPU module audit
 on:
   push:
     branches: [research/dra-mppi-cloud]
-    paths: ['research/dra_mppi/**', '.github/workflows/dra-mppi-upstream.yml']
+    paths: ['research/dra_mppi/**', '!research/dra_mppi/stage_f/**', '.github/workflows/dra-mppi-upstream.yml']
   workflow_dispatch:
 
 permissions:

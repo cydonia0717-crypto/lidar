@@ -62,7 +62,7 @@ def packets(world, name, seed, dt, duration):
     return times[keep], arrival[keep], values[keep]
 
 
-def predict(history, now, T, dt):
+def predict(history, now, T, dt, ols=False):
     stamp, arrival, positions = history
     ids = np.flatnonzero(arrival <= now+1e-8)
     assert len(ids), 'No received packet: cannot silently read an undelivered observation'
@@ -71,8 +71,14 @@ def predict(history, now, T, dt):
         return np.repeat(positions[idx][None],T,axis=0), float(now-stamp[idx]), True
     a,b = ids[-2:]
     velocity = (positions[b]-positions[a])/(stamp[b]-stamp[a])
+    origin=positions[b]
+    if ols and len(ids)>=3:
+        recent=ids[-5:]
+        x=stamp[recent]-stamp[recent].mean()
+        velocity=(x[:,None,None]*positions[recent]).sum(0)/(x*x).sum()
+        origin=positions[recent].mean(0)+(stamp[b]-stamp[recent].mean())*velocity
     future = now+(np.arange(T)+1)*dt
-    return positions[b][None]+(future-stamp[b])[:,None,None]*velocity[None], float(now-stamp[b]), False
+    return origin[None]+(future-stamp[b])[:,None,None]*velocity[None], float(now-stamp[b]), False
 
 
 def rollout(state, controls, dt):
@@ -187,15 +193,20 @@ def main():
             (a.output/f'packets_{name}_{seed}.json').write_text(json.dumps(dict(stamps=history[0].tolist(),arrivals=history[1].tolist(),positions=history[2].tolist())))
             sigma=.05 if name=='noise_under' else (.8 if name=='noise_over' else .3)
             variants=[(m,'cv') for m in protocol['methods']]
+            if protocol.get('simple_controls'):
+                variants += [(m,'ols5') for m in protocol['methods']]
+                if name in ['noise_under','heavy_tail']:
+                    variants += [(m,'cv_sigma08') for m in protocol['methods'] if m!='mean']
             if name in protocol['oracle_diagnostics']: variants.append(('event_cdf','oracle_future'))
             for method,predictor in variants:
+                sigma=(.05 if name=='noise_under' else (.8 if name=='noise_over' else .3)) if predictor!='cv_sigma08' else .8
                 identity=f'{name}_{seed}_{method}_{predictor}'
                 state=np.zeros(6); times=[]; out='timeout'; mingap=math.inf; waiting=0
                 mu,_,_=predict(history,0.,20,.2)
                 planner,obs,cfg=assemble(method,mu,sigma,seed)
                 for step in range(int(protocol['deadline']/.2)):
                     now=round(step*.2,8)
-                    mu,age,prior=predict(history,now,20,.2)
+                    mu,age,prior=predict(history,now,20,.2,ols=predictor=='ols5')
                     if predictor=='oracle_future': mu=world.positions(now+(np.arange(20)+1)*.2)
                     set_prediction(obs,mu,sigma)
                     start=time.perf_counter();sequence,samples,costs=planner.command(torch.tensor(state,dtype=torch.float32));elapsed=time.perf_counter()-start
@@ -235,6 +246,7 @@ def main():
     # F3: matched-state, one-factor sweeps. Timings include planner command only.
     budgets=[(64,20,2048,8),(32,20,2048,8),(128,20,2048,8),(64,12,2048,8),(64,28,2048,8),
              (64,20,512,8),(64,20,8192,8),(64,20,2048,4),(64,20,2048,12)]
+    if protocol.get('skip_budget_snapshots'): budgets=[]
     budgetrows=[]
     for K,T,MC,n in budgets:
         angles=np.arange(n)*2*np.pi/n
@@ -250,7 +262,7 @@ def main():
                     source_cdf_mae=float(abs(source-cdf).mean()),false_safe_steps=int(((source<=.05)&(cdf>.05)).sum()),
                     false_unsafe_steps=int(((source>.05)&(cdf<=.05)).sum()),cdf_risk_max=float(cdf.max()),
                     deadline5miss=elapsed>.005,deadline20miss=elapsed>.020,deadline50miss=elapsed>.050))
-    save_csv(a.output/'budget_snapshots.csv',budgetrows)
+    if budgetrows: save_csv(a.output/'budget_snapshots.csv',budgetrows)
     summary=[]
     for name in protocol['scenarios']:
         for method in protocol['methods']:
