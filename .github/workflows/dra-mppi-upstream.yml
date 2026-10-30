@@ -108,3 +108,32 @@ jobs:
           path: results/dra-mppi-stage-b/
           if-no-files-found: warn
           retention-days: 30
+
+  ros-social-integration:
+    needs: upstream-cpu
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/checkout@v4
+        with:
+          repository: KhMustafa/dra-mppi
+          ref: 6d76ab2878c503121544b992c0e5706c6c6dece0
+          path: _upstream/dra-mppi
+          persist-credentials: false
+      - name: Build author ROS social simulator and run explicit lockstep bridge
+        run: |
+          mkdir -p results/dra-mppi-stage-c
+          docker pull ros:noetic-ros-base-focal
+          docker image inspect ros:noetic-ros-base-focal --format '{{json .RepoDigests}}' > results/dra-mppi-stage-c/container-image.json
+          docker run --rm -e OMP_NUM_THREADS=2 -e MKL_NUM_THREADS=2 -e PYTHONUNBUFFERED=1 -v "$PWD":/workspace -w /workspace ros:noetic-ros-base-focal bash research/dra_mppi/bootstrap_ros_social.sh 2>&1 | tee results/dra-mppi-stage-c/bootstrap.log
+      - name: Preserve build logs and social traces, including failures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: dra-mppi-stage-c-${{ github.sha }}
+          path: results/dra-mppi-stage-c/
+          if-no-files-found: warn
+          retention-days: 30

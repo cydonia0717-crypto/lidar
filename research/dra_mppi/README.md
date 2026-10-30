@@ -44,6 +44,16 @@ The independent plant is an exact constant-speed/yaw-rate unicycle arc. Targets 
 
 Build-only setup for the author's `ghalton==0.6.1` uses Clang and libc++ in the disposable runner; no sampler compatibility shim is substituted.
 
+## Stage C: original ROS social-force population
+
+The Noetic container builds copies of the author's `asr_rapidxml`, `ros_tools`, `pedsim_original`, `mpc_planner_msgs` and `pedestrian_simulator` packages. Build metadata corrections for isolated message generation are recorded as a patch. The original checkout is retained.
+
+The added service wrapper compiles the original ROS simulator implementation by reference and invokes its public `Loop` and robot-state callback. It returns fresh original observation and prediction messages after each explicit world step. There is no free-running timer or artificial target trajectory substituted for the social-force engine.
+
+The test uses the original 4/8/12-person corridor scenario files and fixed simulator seed5, 20Hz world steps and 5Hz controller updates. A separate Python risk-module copy changes only the hardcoded population5 to the input length. The bridge maps emitted future pose0 to future step1 and verifies every current predicted target reaches the objective. Original conversion failures and population truncation are recorded separately.
+
+This remains an explicit compatibility adaptation: the ego plant is a bounded exact unicycle bridge, not Gazebo or Ackermann. It uses K64/T20/MC2048, a declared60s deadline and x>40m completion criterion. Collision checks are sampled at20Hz, with original checker radii0.325+0.3m and the scenario walls. Solve time is recorded but does not advance the lockstep world. It is not a paper-table reproduction, real-time or continuous-safety certificate, real LiDAR result, or a new algorithm.
+
 ## Following stages
 
 1. Trace the original launch, prediction callbacks and configuration; resolve/document paper-versus-code differences.

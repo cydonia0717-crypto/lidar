@@ -1,0 +1,5 @@
+geometry_msgs/PoseStamped robot_state
+---
+bool fresh
+mpc_planner_msgs/ObstacleArray predictions
+derived_object_msgs/ObjectArray observations
